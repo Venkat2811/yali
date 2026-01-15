@@ -52,6 +52,8 @@ See `examples/01_single_process/01_allreduce/simple.cu` for a complete working e
 
 ## Quick Start
 
+*Built in collaboration with [Claude Code](https://claude.ai/code)*
+
 ```bash
 # 1. Clone and setup (one-time)
 git clone --recursive <repo-url>
