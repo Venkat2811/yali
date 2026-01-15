@@ -50,9 +50,11 @@ yali::allreduce(comm, send0, recv0, send1, recv1, count);
 
 See `examples/01_single_process/01_allreduce/simple.cu` for a complete working example.
 
-## Quick Start
+*Built in collaboration with [Claude Code](https://claude.ai/code) and [Codex CLI](https://github.com/openai/codex)*
 
-*Built in collaboration with [Claude Code](https://claude.ai/code)*
+---
+
+## Quick Start
 
 ```bash
 # 1. Clone and setup (one-time)
