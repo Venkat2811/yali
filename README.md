@@ -140,6 +140,76 @@ bazel build //:example_simple   # Simple example
 bazel build //:benchmark_yali --config=h100  # H100
 ```
 
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical documentation with ASCII diagrams.
+
+### Two Kernel Modes
+
+**Flash kernel** (≤64MB messages):
+- Direct GPU-to-GPU peer access via `cp.async`
+- 3-stage prefetch pipeline hides memory latency
+- Multi-CTA parallelism per lane
+- ~76 GB/s (81% SoL)
+
+**Stream kernel** (>64MB messages):
+- Ring buffer with sequence-based flow control
+- Bidirectional NVLink utilization
+- Fire-and-forget kernel launches
+- ~82 GB/s (87% SoL)
+
+### Key Directories
+
+| Directory         | Purpose                                        |
+|:------------------|:-----------------------------------------------|
+| `src/include/`    | Public headers (yali.h, yali_launch.h)         |
+| `src/kernels/`    | CUDA kernels (stream, flash, ring buffer)      |
+| `src/ops/`        | High-level ops API (allreduce.cuh)             |
+| `src/all_reduce/` | AllReduce interface and kernel headers         |
+| `bench/`          | Benchmarks (benchmark_yali.cu, benchmark_nccl.cu) |
+| `examples/`       | Example code (simple, multilane)               |
+| `scripts/`        | Python utilities (sweep.py, quick_benchmark.py)|
+| `third_party/`    | Submodules (nccl, nccl-tests, nvbandwidth)     |
+
+See [SETUP.md](SETUP.md) for the complete directory structure.
+
+## Submodules
+
+| Submodule   | Version   | Purpose                           |
+|:------------|:----------|:----------------------------------|
+| nccl        | v2.28.9-1 | NCCL library (baseline + headers) |
+| nccl-tests  | v2.17.6   | NCCL performance tests            |
+| nvbandwidth | v0.8      | NVLink bandwidth measurement      |
+
+Initialize:
+```bash
+git submodule update --init --recursive
+```
+
+## Validation
+
+```bash
+# Run examples to verify correctness
+make test-examples
+
+# Run unit tests
+make test-unit
+```
+
+## Limitations
+
+- **2 GPUs only**: Hardcoded for 2-GPU configurations
+- **NVLink required**: Requires direct GPU-to-GPU peer access
+- **Single-node**: No multi-node support (single-node MPI supported)
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Technical deep-dive with ASCII diagrams
+- [SETUP.md](SETUP.md) - Detailed setup and configuration guide
+- `output/` - Benchmark results (gitignored)
+
+---
+
 ## Benchmark Sweeps
 
 ### Full Sweep (Recommended)
@@ -231,74 +301,6 @@ Benchmarked with CUDA events timing on 2x A100-SXM4-80GB with NV4 (4 NVLinks @ 2
 | `YALI_DEV_CTAS_PER_LANE` | auto    | CTAs per lane (flash kernel)       |
 | `YALI_DEV_WARMUP`        | 1       | Warmup iterations                  |
 | `YALI_DEV_ITERS`         | 5       | Measurement iterations             |
-
-## Architecture
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical documentation with ASCII diagrams.
-
-### Two Kernel Modes
-
-**Flash kernel** (≤64MB messages):
-- Direct GPU-to-GPU peer access via `cp.async`
-- 3-stage prefetch pipeline hides memory latency
-- Multi-CTA parallelism per lane
-- ~76 GB/s (81% SoL)
-
-**Stream kernel** (>64MB messages):
-- Ring buffer with sequence-based flow control
-- Bidirectional NVLink utilization
-- Fire-and-forget kernel launches
-- ~82 GB/s (87% SoL)
-
-### Key Directories
-
-| Directory         | Purpose                                        |
-|:------------------|:-----------------------------------------------|
-| `src/include/`    | Public headers (yali.h, yali_launch.h)         |
-| `src/kernels/`    | CUDA kernels (stream, flash, ring buffer)      |
-| `src/ops/`        | High-level ops API (allreduce.cuh)             |
-| `src/all_reduce/` | AllReduce interface and kernel headers         |
-| `bench/`          | Benchmarks (benchmark_yali.cu, benchmark_nccl.cu) |
-| `examples/`       | Example code (simple, multilane)               |
-| `scripts/`        | Python utilities (sweep.py, quick_benchmark.py)|
-| `third_party/`    | Submodules (nccl, nccl-tests, nvbandwidth)     |
-
-See [SETUP.md](SETUP.md) for the complete directory structure.
-
-## Submodules
-
-| Submodule   | Version   | Purpose                           |
-|:------------|:----------|:----------------------------------|
-| nccl        | v2.28.9-1 | NCCL library (baseline + headers) |
-| nccl-tests  | v2.17.6   | NCCL performance tests            |
-| nvbandwidth | v0.8      | NVLink bandwidth measurement      |
-
-Initialize:
-```bash
-git submodule update --init --recursive
-```
-
-## Validation
-
-```bash
-# Run examples to verify correctness
-make test-examples
-
-# Run unit tests
-make test-unit
-```
-
-## Limitations
-
-- **2 GPUs only**: Hardcoded for 2-GPU configurations
-- **NVLink required**: Requires direct GPU-to-GPU peer access
-- **Single-node**: No multi-node support (single-node MPI supported)
-
-## Documentation
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Technical deep-dive with ASCII diagrams
-- [SETUP.md](SETUP.md) - Detailed setup and configuration guide
-- `output/` - Benchmark results (gitignored)
 
 ## License
 
