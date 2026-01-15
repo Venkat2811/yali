@@ -1,0 +1,53 @@
+# Build artifacts
+bin/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.out
+*.app
+
+# CUDA compilation artifacts
+*.ptx
+*.cubin
+*.fatbin
+
+# Test results and benchmark outputs
+_scratch/
+_results/
+output/
+*.log
+*.txt
+baseline_*.txt
+consolidated_*.csv
+performance_*.md
+*-standalone/
+
+# Bazel build outputs
+bazel-*
+.bazelrc.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+.*.swp
+.*.swo
+
+.venv_b200/
+venv-2xa100/
+_temp_repo/

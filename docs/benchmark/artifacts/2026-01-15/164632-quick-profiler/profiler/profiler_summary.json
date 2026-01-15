@@ -1,0 +1,53 @@
+{
+  "sizes": [
+    "1M",
+    "64M",
+    "256M"
+  ],
+  "yali": {
+    "1M": {
+      "wall_clock_ms": 4.6901090000000005,
+      "sum_kernel_ms": 8.750714,
+      "avg_us": 36.461308333333335,
+      "kernel_count": 240,
+      "effective_bw_gbps": 0.223571776263622
+    },
+    "64M": {
+      "wall_clock_ms": 209.014309,
+      "sum_kernel_ms": 417.521609,
+      "avg_us": 1739.6733708333334,
+      "kernel_count": 240,
+      "effective_bw_gbps": 0.3210730610792776
+    },
+    "256M": {
+      "wall_clock_ms": 904.3789300000001,
+      "sum_kernel_ms": 182449.258703,
+      "avg_us": 5939.103473404948,
+      "kernel_count": 30720,
+      "effective_bw_gbps": 0.2968174590268263
+    }
+  },
+  "nccl": {
+    "1M": {
+      "wall_clock_ms": 17.926965,
+      "sum_kernel_ms": 25.731813,
+      "avg_us": 107.2158875,
+      "kernel_count": 240,
+      "effective_bw_gbps": 0.05849155169321746
+    },
+    "64M": {
+      "wall_clock_ms": 257.057511,
+      "sum_kernel_ms": 503.658303,
+      "avg_us": 2098.5762625,
+      "kernel_count": 240,
+      "effective_bw_gbps": 0.2610655636512407
+    },
+    "256M": {
+      "wall_clock_ms": 938.7720899999999,
+      "sum_kernel_ms": 1867.388092,
+      "avg_us": 7780.783716666667,
+      "kernel_count": 240,
+      "effective_bw_gbps": 0.2859431579394313
+    }
+  }
+}

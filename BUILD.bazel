@@ -1,0 +1,1364 @@
+load("@rules_cuda//cuda:defs.bzl", "cuda_library")
+
+package(default_visibility = ["//visibility:public"])
+
+###############################################################################
+# Header-only Libraries (Phase 14.2)
+# These expose headers for proper dependency tracking
+###############################################################################
+
+# NCCL headers from submodule (device + include directories)
+cc_library(
+    name = "nccl_headers",
+    hdrs = glob([
+        "third_party/nccl/src/include/**/*.h",
+        "third_party/nccl/src/device/**/*.h",
+        "third_party/nccl/src/device/**/*.cuh",
+    ]),
+    includes = [
+        "third_party/nccl/src",
+        "third_party/nccl/src/device",
+        "third_party/nccl/src/include",
+        "third_party/nccl/src/include/plugin",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Yali public headers (src/include/)
+cc_library(
+    name = "yali_include",
+    hdrs = glob(["src/include/*.h"]),
+    includes = ["src/include"],
+    visibility = ["//visibility:public"],
+)
+
+# Yali kernel headers (src/kernels/*.cuh)
+cc_library(
+    name = "yali_kernel_hdrs",
+    hdrs = glob(["src/kernels/*.cuh"]),
+    includes = ["src/kernels"],
+    visibility = ["//visibility:public"],
+)
+
+# Yali src headers (src/**/*.cuh, src/**/*.h)
+cc_library(
+    name = "yali_src_hdrs",
+    hdrs = glob([
+        "src/**/*.cuh",
+        "src/**/*.h",
+    ]),
+    includes = ["src"],
+    visibility = ["//visibility:public"],
+)
+
+# Combined yali headers for convenience
+cc_library(
+    name = "yali_headers",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":yali_include",
+        ":yali_kernel_hdrs",
+        ":yali_src_hdrs",
+        ":nccl_headers",
+    ],
+)
+
+###############################################################################
+# CUDA Libraries (Phase 14.3)
+# Migrated from genrule to cuda_library for incremental compilation
+###############################################################################
+
+# Yali kernel library (src/kernels/stream.cu)
+cuda_library(
+    name = "yali_kernels",
+    srcs = ["src/kernels/stream.cu"],
+    hdrs = glob(["src/kernels/*.cuh"]),
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+    ],
+    rdc = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":yali_include",
+        ":nccl_headers",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+###############################################################################
+# MPI Support
+# Multi-process communicator for IPC-based AllReduce
+###############################################################################
+
+# Comm library (MPI + IPC management)
+# This is compiled WITHOUT MPI by default. Use yali_comm_mpi for MPI support.
+cuda_library(
+    name = "yali_comm",
+    srcs = [
+        "src/comm/comm.cu",
+        "src/comm/ipc.cu",
+    ],
+    hdrs = [
+        "src/comm/comm.h",
+        "src/comm/ipc.cuh",
+    ],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+    ],
+    includes = ["src/comm"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+# MPI-enabled comm library
+# Requires: apt-get install openmpi-bin libopenmpi-dev
+cuda_library(
+    name = "yali_comm_mpi",
+    srcs = [
+        "src/comm/comm.cu",
+        "src/comm/ipc.cu",
+    ],
+    hdrs = [
+        "src/comm/comm.h",
+        "src/comm/ipc.cuh",
+    ],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+        "-DYALI_MPI_SUPPORT",
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+    ],
+    includes = ["src/comm"],
+    linkopts = [
+        "-L/usr/lib/x86_64-linux-gnu/openmpi/lib",
+        "-lmpi",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+###############################################################################
+# Ops Tests
+###############################################################################
+
+# Test for ops/allreduce.cuh
+cuda_library(
+    name = "test_ops_allreduce_lib",
+    srcs = ["tests/test_ops_allreduce.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "test_ops_allreduce",
+    deps = [
+        ":test_ops_allreduce_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+# Bandwidth kernel test for ops/allreduce.cuh
+cuda_library(
+    name = "test_bw_ops_lib",
+    srcs = ["tests/test_bw_ops.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "test_bw_ops",
+    deps = [
+        ":test_bw_ops_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+###############################################################################
+# Unit Test Libraries (Phase 14.4)
+# Migrated from genrule to cuda_library for incremental compilation
+###############################################################################
+
+# Test framework headers
+cc_library(
+    name = "test_framework",
+    hdrs = ["tests/unit/test_framework.h"],
+    includes = ["tests/unit"],
+    visibility = ["//visibility:public"],
+)
+
+# Unit test libraries (compile .cu files with nvcc)
+cuda_library(
+    name = "test_dtypes_lib",
+    srcs = ["tests/unit/test_dtypes.cu"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":yali_headers",
+        ":test_framework",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cuda_library(
+    name = "test_all_reduce_correctness_lib",
+    srcs = ["tests/unit/test_all_reduce_correctness.cu"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":yali_headers",
+        ":test_framework",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cuda_library(
+    name = "test_validation_lib",
+    srcs = ["tests/unit/test_validation.cu"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":yali_headers",
+        ":test_framework",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cuda_library(
+    name = "test_peer_access_lib",
+    srcs = ["tests/unit/test_peer_access.cu"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":yali_headers",
+        ":test_framework",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cuda_library(
+    name = "test_buffer_ops_lib",
+    srcs = ["tests/unit/test_buffer_ops.cu"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":yali_headers",
+        ":test_framework",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cuda_library(
+    name = "test_all_reduce_interface_lib",
+    srcs = ["tests/unit/test_all_reduce_interface.cu"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":yali_headers",
+        ":test_framework",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+# Unit test binaries (link the cuda_library)
+cc_binary(
+    name = "test_dtypes",
+    visibility = ["//visibility:public"],
+    deps = [":test_dtypes_lib"],
+)
+
+cc_binary(
+    name = "test_all_reduce_correctness",
+    visibility = ["//visibility:public"],
+    deps = [":test_all_reduce_correctness_lib"],
+)
+
+cc_binary(
+    name = "test_validation",
+    visibility = ["//visibility:public"],
+    deps = [":test_validation_lib"],
+)
+
+cc_binary(
+    name = "test_peer_access",
+    visibility = ["//visibility:public"],
+    deps = [":test_peer_access_lib"],
+)
+
+cc_binary(
+    name = "test_buffer_ops",
+    visibility = ["//visibility:public"],
+    deps = [":test_buffer_ops_lib"],
+)
+
+cc_binary(
+    name = "test_all_reduce_interface",
+    visibility = ["//visibility:public"],
+    deps = [":test_all_reduce_interface_lib"],
+)
+
+# =============================================================================
+# NCCL Baseline Tests (RING, TREE, Device API)
+# =============================================================================
+
+_NCCL_BASELINE_ENV = {
+    "CUDA_VISIBLE_DEVICES": "0,1",
+    "NCCL_WARMUP": "1",
+    "NCCL_ITERS": "5",
+    "BASELINE_SIZES": "2K 4K 8K 16K 32K 64K 128K 256K 512K 1M 2M 4M 8M 16M 32M 64M 128M 256M 512M 1G 2G",
+}
+
+# NCCL RING algorithm baselines
+sh_test(
+    name = "nccl_baseline_ring_fp32",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "RING",
+        "--dtype",
+        "float",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "RING",
+        NCCL_DTYPE = "float",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+sh_test(
+    name = "nccl_baseline_ring_fp16",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "RING",
+        "--dtype",
+        "half",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "RING",
+        NCCL_DTYPE = "half",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+sh_test(
+    name = "nccl_baseline_ring_bf16",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "RING",
+        "--dtype",
+        "bfloat16",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "RING",
+        NCCL_DTYPE = "bfloat16",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+# NCCL TREE algorithm baselines
+sh_test(
+    name = "nccl_baseline_tree_fp32",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "TREE",
+        "--dtype",
+        "float",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "TREE",
+        NCCL_DTYPE = "float",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+sh_test(
+    name = "nccl_baseline_tree_fp16",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "TREE",
+        "--dtype",
+        "half",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "TREE",
+        NCCL_DTYPE = "half",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+sh_test(
+    name = "nccl_baseline_tree_bf16",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "TREE",
+        "--dtype",
+        "bfloat16",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "TREE",
+        NCCL_DTYPE = "bfloat16",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+# NCCL Device API baselines (uses -D 2 -R 2 -z 1 for proper timing)
+sh_test(
+    name = "nccl_baseline_devapi_fp32",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "DEVICE_API",
+        "--dtype",
+        "float",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "DEVICE_API",
+        NCCL_DTYPE = "float",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+sh_test(
+    name = "nccl_baseline_devapi_fp16",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "DEVICE_API",
+        "--dtype",
+        "half",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "DEVICE_API",
+        NCCL_DTYPE = "half",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+sh_test(
+    name = "nccl_baseline_devapi_bf16",
+    timeout = "long",
+    srcs = ["tests/run_nccl_baseline.sh"],
+    args = [
+        "--algo",
+        "DEVICE_API",
+        "--dtype",
+        "bfloat16",
+    ],
+    data = [":nccl_tests_bin"],
+    env = dict(
+        _NCCL_BASELINE_ENV,
+        NCCL_ALGO = "DEVICE_API",
+        NCCL_DTYPE = "bfloat16",
+        NCCL_TEST_BIN = "$(location :all_reduce_perf)",
+    ),
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+)
+
+# Test suite for all NCCL baselines
+test_suite(
+    name = "nccl_baselines",
+    tags = [
+        "benchmark",
+        "nccl-baseline",
+        "requires-gpu",
+    ],
+    tests = [
+        ":nccl_baseline_devapi_bf16",
+        ":nccl_baseline_devapi_fp16",
+        ":nccl_baseline_devapi_fp32",
+        ":nccl_baseline_ring_bf16",
+        ":nccl_baseline_ring_fp16",
+        ":nccl_baseline_ring_fp32",
+        ":nccl_baseline_tree_bf16",
+        ":nccl_baseline_tree_fp16",
+        ":nccl_baseline_tree_fp32",
+    ],
+)
+
+# Test suite for correctness coverage (unit tests)
+test_suite(
+    name = "correctness_tests",
+    tags = ["requires-gpu"],
+    tests = [
+        ":unit_test_all_reduce_correctness",
+        ":unit_test_dtypes",
+        ":unit_test_validation",
+        ":unit_test_peer_access",
+        ":unit_test_buffer_ops",
+        ":unit_test_all_reduce_interface",
+    ],
+)
+
+# Aggregate suite
+test_suite(
+    name = "all_tests",
+    tags = ["requires-gpu"],
+    tests = [
+        ":correctness_tests",
+        ":nccl_baselines",
+    ],
+)
+
+# =============================================================================
+# Unit Test Runners (using cuda_library binaries from Phase 14.4)
+# =============================================================================
+
+sh_test(
+    name = "unit_test_all_reduce_correctness",
+    timeout = "short",
+    srcs = ["tests/unit/run_unit_test.sh"],
+    args = ["$(location :test_all_reduce_correctness)"],
+    data = [":test_all_reduce_correctness"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "requires-gpu",
+        "unit",
+    ],
+)
+
+sh_test(
+    name = "unit_test_dtypes",
+    timeout = "short",
+    srcs = ["tests/unit/run_unit_test.sh"],
+    args = ["$(location :test_dtypes)"],
+    data = [":test_dtypes"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "requires-gpu",
+        "unit",
+    ],
+)
+
+sh_test(
+    name = "unit_test_validation",
+    timeout = "short",
+    srcs = ["tests/unit/run_unit_test.sh"],
+    args = ["$(location :test_validation)"],
+    data = [":test_validation"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "requires-gpu",
+        "unit",
+    ],
+)
+
+sh_test(
+    name = "unit_test_peer_access",
+    timeout = "short",
+    srcs = ["tests/unit/run_unit_test.sh"],
+    args = ["$(location :test_peer_access)"],
+    data = [":test_peer_access"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "requires-gpu",
+        "unit",
+    ],
+)
+
+sh_test(
+    name = "unit_test_buffer_ops",
+    timeout = "short",
+    srcs = ["tests/unit/run_unit_test.sh"],
+    args = ["$(location :test_buffer_ops)"],
+    data = [":test_buffer_ops"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "requires-gpu",
+        "unit",
+    ],
+)
+
+sh_test(
+    name = "unit_test_all_reduce_interface",
+    timeout = "short",
+    srcs = ["tests/unit/run_unit_test.sh"],
+    args = ["$(location :test_all_reduce_interface)"],
+    data = [":test_all_reduce_interface"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "requires-gpu",
+        "unit",
+    ],
+)
+
+# Unit test suite
+test_suite(
+    name = "unit_tests",
+    tags = [
+        "requires-gpu",
+        "unit",
+    ],
+    tests = [
+        ":unit_test_all_reduce_correctness",
+        ":unit_test_all_reduce_interface",
+        ":unit_test_buffer_ops",
+        ":unit_test_dtypes",
+        ":unit_test_peer_access",
+        ":unit_test_validation",
+    ],
+)
+
+# =============================================================================
+# External tool builds (nccl, nccl-tests, nvbandwidth)
+# Target: sm_80 (A100)
+# =============================================================================
+
+# Build NCCL library from submodule (generates headers + libnccl)
+# NOTE: Uses local=True because NCCL's Makefile writes to source tree
+genrule(
+    name = "nccl_lib",
+    srcs = glob(["third_party/nccl/**"]),
+    outs = [
+        "libnccl.so",
+        "nccl.h",
+    ],
+    cmd = """
+        set -e
+        export CUDA_HOME=$${CUDA_HOME:-/usr/local/cuda}
+        cd third_party/nccl
+        make -j$$(nproc) src.build NVCC_GENCODE="-gencode=arch=compute_80,code=sm_80" 2>&1
+        cp build/lib/libnccl.so $$OLDPWD/$(location libnccl.so)
+        cp build/include/nccl.h $$OLDPWD/$(location nccl.h)
+    """,
+    local = True,
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+# Build NCCL tests all_reduce_perf binary + libnccl.so.2 (depends on nccl_lib)
+# Uses -isystem to prioritize our NCCL headers over system headers
+# CRITICAL: nccl-headers version MUST match nccl-library version (22809 for v2.28.9)
+# NOTE: Uses local=True because NCCL's Makefile writes to source tree
+genrule(
+    name = "nccl_tests_bin",
+    srcs = glob(["third_party/nccl-tests/**"]) + glob(["third_party/nccl/**"]),
+    outs = [
+        "all_reduce_perf",
+        "libnccl.so.2",
+    ],
+    cmd = """
+        set -e
+        export CUDA_HOME=$${CUDA_HOME:-/usr/local/cuda}
+        OUTDIR=$$PWD
+        # Build NCCL first (sm_80 only for A100)
+        cd third_party/nccl
+        make -j$$(nproc) src.build NVCC_GENCODE="-gencode=arch=compute_80,code=sm_80" 2>&1
+        NCCL_BUILD=$$PWD/build
+        cd ..
+        # Build nccl-tests against the built NCCL
+        # Use -isystem to prioritize our NCCL headers over system /usr/include
+        # This ensures nccl-headers=22809 matches nccl-library=22809
+        cd nccl-tests
+        rm -rf build
+        make -j$$(nproc) MPI=0 CUDA_HOME=$$CUDA_HOME NCCL_HOME=$$NCCL_BUILD \\
+            NVCC_GENCODE="-gencode=arch=compute_80,code=sm_80" \\
+            NVCUFLAGS="-ccbin g++ -gencode=arch=compute_80,code=sm_80 -std=c++17 -O3 -g -isystem $$NCCL_BUILD/include" 2>&1
+        cp build/all_reduce_perf $$OUTDIR/$(location all_reduce_perf)
+        cp $$NCCL_BUILD/lib/libnccl.so.2 $$OUTDIR/$(location libnccl.so.2)
+    """,
+    local = True,
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+# NCCL tests with MPI support (for multi-process mode)
+# Requires: apt-get install openmpi-bin libopenmpi-dev
+genrule(
+    name = "nccl_tests_mpi_bin",
+    srcs = glob(["third_party/nccl-tests/**"]) + glob(["third_party/nccl/**"]),
+    outs = [
+        "all_reduce_perf_mpi",
+        "libnccl_mpi.so.2",
+    ],
+    cmd = """
+        set -e
+        export CUDA_HOME=$${CUDA_HOME:-/usr/local/cuda}
+        OUTDIR=$$PWD
+        # Check if MPI is available
+        if ! command -v mpicc >/dev/null 2>&1; then
+            echo "ERROR: MPI not found. Install with: apt-get install openmpi-bin libopenmpi-dev"
+            exit 1
+        fi
+        MPI_HOME=$$(dirname $$(dirname $$(which mpicc)))
+        # Build NCCL first (sm_80 only for A100)
+        cd third_party/nccl
+        make -j$$(nproc) src.build NVCC_GENCODE="-gencode=arch=compute_80,code=sm_80" 2>&1
+        NCCL_BUILD=$$PWD/build
+        cd ..
+        # Build nccl-tests with MPI support
+        cd nccl-tests
+        rm -rf build
+        make -j$$(nproc) MPI=1 MPI_HOME=$$MPI_HOME CUDA_HOME=$$CUDA_HOME NCCL_HOME=$$NCCL_BUILD \\
+            NVCC_GENCODE="-gencode=arch=compute_80,code=sm_80" \\
+            NVCUFLAGS="-ccbin g++ -gencode=arch=compute_80,code=sm_80 -std=c++17 -O3 -g -isystem $$NCCL_BUILD/include" 2>&1
+        cp build/all_reduce_perf $$OUTDIR/$(location all_reduce_perf_mpi)
+        cp $$NCCL_BUILD/lib/libnccl.so.2 $$OUTDIR/$(location libnccl_mpi.so.2)
+    """,
+    local = True,
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+# Build nvbandwidth binary (sm_80 for A100)
+genrule(
+    name = "nvbandwidth_bin",
+    srcs = glob(["third_party/nvbandwidth/**"]),
+    outs = ["nvbandwidth"],
+    cmd = """
+        set -e
+        export CUDA_HOME=$${CUDA_HOME:-/usr/local/cuda}
+        OUTDIR=$$PWD
+        cd third_party/nvbandwidth
+        mkdir -p build && cd build
+        cmake .. -DCMAKE_CUDA_ARCHITECTURES=80 2>&1
+        make -j$$(nproc) 2>&1
+        cp nvbandwidth $$OUTDIR/$@
+    """,
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+# =============================================================================
+# Validation tests for external dependencies
+# These tests verify the build artifacts work correctly
+# =============================================================================
+
+# Validate NCCL version matching (headers == library)
+sh_test(
+    name = "validate_nccl_version",
+    timeout = "short",
+    srcs = ["tests/validate_nccl_version.sh"],
+    data = [
+        ":nccl_tests_bin",
+    ],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+        "EXPECTED_NCCL_VERSION": "22809",  # v2.28.9
+    },
+    tags = [
+        "requires-gpu",
+        "validation",
+    ],
+)
+
+# Validate nccl-tests runs correctly with our NCCL library
+sh_test(
+    name = "validate_nccl_tests",
+    timeout = "moderate",
+    srcs = ["tests/validate_nccl_tests.sh"],
+    data = [
+        ":nccl_tests_bin",
+    ],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+        "MIN_BUS_BW_GBPS": "80",  # Minimum expected bus bandwidth at 128M
+    },
+    tags = [
+        "requires-gpu",
+        "validation",
+    ],
+)
+
+# Validate nvbandwidth runs and reports NVLink bandwidth
+sh_test(
+    name = "validate_nvbandwidth",
+    timeout = "short",
+    srcs = ["tests/validate_nvbandwidth.sh"],
+    data = [
+        ":nvbandwidth_bin",
+    ],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+        "MIN_NVLINK_BW_GBPS": "100",  # Minimum expected NVLink bandwidth
+    },
+    tags = [
+        "requires-gpu",
+        "validation",
+    ],
+)
+
+# Validation suite - run all validation tests
+test_suite(
+    name = "validation",
+    tags = [
+        "requires-gpu",
+        "validation",
+    ],
+    tests = [
+        ":validate_nccl_tests",
+        ":validate_nccl_version",
+        ":validate_nvbandwidth",
+    ],
+)
+
+###############################################################################
+# Examples (NCCL-style nested folders)
+# Structure: examples/{category}/{operation}/{example}.cu
+###############################################################################
+
+# 01_single_process/01_allreduce/simple.cu
+cuda_library(
+    name = "example_simple_lib",
+    srcs = ["examples/01_single_process/01_allreduce/simple.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "example_simple",
+    deps = [
+        ":example_simple_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+# 01_single_process/01_allreduce/multilane.cu
+cuda_library(
+    name = "example_multilane_lib",
+    srcs = ["examples/01_single_process/01_allreduce/multilane.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "example_multilane",
+    deps = [
+        ":example_multilane_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+# Legacy aliases for backward compatibility
+alias(
+    name = "simple_allreduce",
+    actual = ":example_simple",
+)
+
+alias(
+    name = "simple_all_reduce",
+    actual = ":example_simple",
+)
+
+alias(
+    name = "multilane_allreduce",
+    actual = ":example_multilane",
+)
+
+alias(
+    name = "advanced_all_reduce",
+    actual = ":example_multilane",
+)
+
+###############################################################################
+# Example Tests and Performance Validation
+###############################################################################
+
+# Correctness test for simple example
+sh_test(
+    name = "test_example_simple",
+    timeout = "short",
+    srcs = ["tests/unit/run_unit_test.sh"],
+    args = ["$(location :example_simple)"],
+    data = [":example_simple"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "examples",
+        "requires-gpu",
+    ],
+)
+
+# Correctness test for multilane example
+sh_test(
+    name = "test_example_multilane",
+    timeout = "short",
+    srcs = ["tests/unit/run_unit_test.sh"],
+    args = ["$(location :example_multilane)"],
+    data = [":example_multilane"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "examples",
+        "requires-gpu",
+    ],
+)
+
+# Example performance sweep (64MB and 2GB across dtypes)
+sh_test(
+    name = "test_example_perf",
+    timeout = "moderate",
+    srcs = ["tests/run_example_perf.sh"],
+    args = [
+        "--simple=$(location :example_simple)",
+        "--multilane=$(location :example_multilane)",
+        "--benchmark=$(location :benchmark_yali)",
+    ],
+    data = [
+        ":benchmark_yali",
+        ":example_multilane",
+        ":example_simple",
+    ],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+    },
+    tags = [
+        "benchmark",
+        "examples",
+        "requires-gpu",
+    ],
+)
+
+# Example test suite
+test_suite(
+    name = "example_tests",
+    tags = [
+        "examples",
+        "requires-gpu",
+    ],
+    tests = [
+        ":test_example_multilane",
+        ":test_example_perf",
+        ":test_example_simple",
+    ],
+)
+
+###############################################################################
+# MPI Examples (Phase 15 - Parity with single-process)
+# Structure: examples/02_multi_process/{operation}/{example}.cu
+###############################################################################
+
+# 02_multi_process/01_allreduce/simple_mpi.cu
+cuda_library(
+    name = "example_simple_mpi_lib",
+    srcs = ["examples/02_multi_process/01_allreduce/simple_mpi.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+        "-DYALI_MPI_SUPPORT",
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_comm_mpi",
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "example_simple_mpi",
+    linkopts = [
+        "-L/usr/lib/x86_64-linux-gnu/openmpi/lib",
+        "-lmpi",
+    ],
+    deps = [
+        ":example_simple_mpi_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+# 02_multi_process/01_allreduce/multilane_mpi.cu
+cuda_library(
+    name = "example_multilane_mpi_lib",
+    srcs = ["examples/02_multi_process/01_allreduce/multilane_mpi.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+        "-DYALI_MPI_SUPPORT",
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_comm_mpi",
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "example_multilane_mpi",
+    linkopts = [
+        "-L/usr/lib/x86_64-linux-gnu/openmpi/lib",
+        "-lmpi",
+    ],
+    deps = [
+        ":example_multilane_mpi_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+###############################################################################
+# MPI Example Tests
+###############################################################################
+
+# Test wrapper for MPI examples (uses mpirun)
+sh_test(
+    name = "test_example_simple_mpi",
+    timeout = "short",
+    srcs = ["tests/run_mpi_example.sh"],
+    args = ["$(location :example_simple_mpi)"],
+    data = [":example_simple_mpi"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+        "NPROCS": "2",
+    },
+    tags = [
+        "examples",
+        "mpi",
+        "requires-gpu",
+    ],
+)
+
+sh_test(
+    name = "test_example_multilane_mpi",
+    timeout = "short",
+    srcs = ["tests/run_mpi_example.sh"],
+    args = ["$(location :example_multilane_mpi)"],
+    data = [":example_multilane_mpi"],
+    env = {
+        "CUDA_VISIBLE_DEVICES": "0,1",
+        "NPROCS": "2",
+    },
+    tags = [
+        "examples",
+        "mpi",
+        "requires-gpu",
+    ],
+)
+
+###############################################################################
+# MPI Test Suites (Phase 15 - Parity with single-process)
+###############################################################################
+
+# MPI correctness test suite
+test_suite(
+    name = "mpi_correctness_tests",
+    tags = [
+        "mpi",
+        "requires-gpu",
+    ],
+    tests = [
+        ":test_mpi_basic_bf16",
+        ":test_mpi_basic_fp16",
+        ":test_mpi_basic_fp32",
+    ],
+)
+
+# MPI example test suite
+test_suite(
+    name = "mpi_example_tests",
+    tags = [
+        "examples",
+        "mpi",
+        "requires-gpu",
+    ],
+    tests = [
+        ":test_example_multilane_mpi",
+        ":test_example_simple_mpi",
+    ],
+)
+
+# Aggregate MPI suite
+test_suite(
+    name = "mpi_tests",
+    tags = [
+        "mpi",
+        "requires-gpu",
+    ],
+    tests = [
+        ":mpi_correctness_tests",
+        ":mpi_example_tests",
+    ],
+)
+
+###############################################################################
+# MPI Ops API Test (mirrors test_ops_allreduce for single-process)
+###############################################################################
+
+cuda_library(
+    name = "test_ops_allreduce_mpi_lib",
+    srcs = ["tests/test_ops_allreduce_mpi.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+        "-DYALI_MPI_SUPPORT",
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_comm_mpi",
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "test_ops_allreduce_mpi",
+    linkopts = [
+        "-L/usr/lib/x86_64-linux-gnu/openmpi/lib",
+        "-lmpi",
+    ],
+    deps = [
+        ":test_ops_allreduce_mpi_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+###############################################################################
+# Production Benchmarks (fair comparison without per-iteration sync)
+# Multi-dtype support: fp32, fp16, bf16 (set via YALI_DTYPE env or CLI arg)
+###############################################################################
+
+# NCCL benchmark (production-like, no sync between iterations)
+# Uses NCCL from third_party/nccl
+# NOTE: Build nccl_tests_bin first, then run with:
+#   LD_LIBRARY_PATH=third_party/nccl/build/lib:$LD_LIBRARY_PATH ./bazel-bin/benchmark_nccl
+cuda_library(
+    name = "benchmark_nccl_lib",
+    srcs = ["bench/benchmark_nccl.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+    ],
+    linkopts = [
+        "-Lthird_party/nccl/build/lib",
+        "-lnccl",
+        "-Wl,-rpath,third_party/nccl/build/lib",
+    ],
+    rdc = True,
+    deps = [
+        ":nccl_headers",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "benchmark_nccl",
+    linkopts = [
+        "-Lthird_party/nccl/build/lib",
+        "-lnccl",
+        "-Wl,-rpath,$$ORIGIN/../third_party/nccl/build/lib",
+    ],
+    deps = [
+        ":benchmark_nccl_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+# YALI benchmark (production-like, no sync between iterations)
+cuda_library(
+    name = "benchmark_yali_lib",
+    srcs = ["bench/benchmark_yali.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "benchmark_yali",
+    deps = [
+        ":benchmark_yali_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+###############################################################################
+# MPI Benchmarks (multi-process, production-like)
+###############################################################################
+
+# NCCL MPI benchmark (one process per GPU)
+cuda_library(
+    name = "benchmark_nccl_mpi_lib",
+    srcs = ["bench/benchmark_nccl_mpi.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+    ],
+    linkopts = [
+        "-Lthird_party/nccl/build/lib",
+        "-lnccl",
+        "-L/usr/lib/x86_64-linux-gnu/openmpi/lib",
+        "-lmpi",
+        "-Wl,-rpath,third_party/nccl/build/lib",
+    ],
+    rdc = True,
+    deps = [
+        ":nccl_headers",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "benchmark_nccl_mpi",
+    linkopts = [
+        "-Lthird_party/nccl/build/lib",
+        "-lnccl",
+        "-L/usr/lib/x86_64-linux-gnu/openmpi/lib",
+        "-lmpi",
+        "-Wl,-rpath,$$ORIGIN/../third_party/nccl/build/lib",
+    ],
+    deps = [
+        ":benchmark_nccl_mpi_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)
+
+# YALI MPI benchmark (one process per GPU)
+cuda_library(
+    name = "benchmark_yali_mpi_lib",
+    srcs = ["bench/benchmark_yali_mpi.cu"],
+    copts = [
+        "--expt-extended-lambda",
+        "-lineinfo",
+        "-DYALI_MPI_SUPPORT",
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+    ],
+    rdc = True,
+    deps = [
+        ":yali_comm_mpi",
+        ":yali_headers",
+        ":yali_kernels",
+        "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cc_binary(
+    name = "benchmark_yali_mpi",
+    linkopts = [
+        "-L/usr/lib/x86_64-linux-gnu/openmpi/lib",
+        "-lmpi",
+    ],
+    deps = [
+        ":benchmark_yali_mpi_lib",
+        "@local_cuda//:cudadevrt_a",
+    ],
+)

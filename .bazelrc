@@ -1,0 +1,25 @@
+# Disable Bazel's convenience symlinks (bazel-bin, bazel-out, etc.)
+# They clutter the workspace and we can access outputs via bazel-bin inside the cache.
+common --experimental_convenience_symlinks=ignore
+
+###############################################################################
+# CUDA Configuration (rules_cuda)
+###############################################################################
+
+# Default CUDA architecture: sm_80 (A100)
+build --@rules_cuda//cuda:archs=compute_80:compute_80,sm_80
+
+# CUDA compiler options: C++17, extended lambda, line info for profiling
+build --@rules_cuda//cuda:copts=-std=c++17
+build --@rules_cuda//cuda:copts=--expt-extended-lambda
+build --@rules_cuda//cuda:copts=-lineinfo
+
+# Architecture configs for different GPUs
+build:a100 --@rules_cuda//cuda:archs=compute_80:compute_80,sm_80
+build:h100 --@rules_cuda//cuda:archs=compute_90:compute_90,sm_90
+
+# Multi-arch build (both A100 and H100)
+build:multi --@rules_cuda//cuda:archs=compute_80:compute_80,sm_80;compute_90:compute_90,sm_90
+
+# Enable CUDA toolchain
+build --@rules_cuda//cuda:enable=True

@@ -1,0 +1,22 @@
+###############################################################################
+# Bzlmod configuration for yali
+# Phase 14: rules_cuda migration for incremental CUDA builds
+###############################################################################
+
+module(
+    name = "yali",
+    version = "0.1.0",
+)
+
+# rules_cuda for proper CUDA compilation with incremental builds
+bazel_dep(name = "rules_cuda", version = "0.2.5")
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "platforms", version = "0.0.10")
+
+# CUDA toolchain setup
+cuda = use_extension("@rules_cuda//cuda:extensions.bzl", "toolchain")
+cuda.local_toolchain(
+    name = "local_cuda",
+    toolkit_path = "",  # Auto-detect from CUDA_PATH env var or standard locations
+)
+use_repo(cuda, "local_cuda")

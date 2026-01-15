@@ -1,0 +1,99 @@
+# Clang-format configuration for YALI
+# Based on LLVM style with CUDA-friendly customizations
+
+BasedOnStyle: LLVM
+Language: Cpp
+
+# Column limit - 120 provides room for CUDA code with long template names
+ColumnLimit: 120
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+IndentCaseLabels: true
+IndentPPDirectives: BeforeHash
+NamespaceIndentation: None
+
+# Braces
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignOperands: Align
+AlignTrailingComments: true
+PointerAlignment: Left
+
+# Includes - group CUDA, system, then project headers
+IncludeBlocks: Regroup
+IncludeCategories:
+  # CUDA headers
+  - Regex: '^<cuda.*\.h(pp)?>'
+    Priority: 1
+  # NCCL headers
+  - Regex: '^<nccl.*\.h>'
+    Priority: 2
+  # System headers
+  - Regex: '^<.*>'
+    Priority: 3
+  # Project headers
+  - Regex: '.*'
+    Priority: 4
+SortIncludes: CaseInsensitive
+
+# Line breaks
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllArgumentsOnNextLine: true
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+BreakStringLiterals: true
+
+# Spaces
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# Templates and lambdas
+AlwaysBreakTemplateDeclarations: Yes
+LambdaBodyIndentation: Signature
+Standard: c++17
+
+# Attributes
+AttributeMacros:
+  - __device__
+  - __host__
+  - __global__
+  - __shared__
+  - __constant__
+  - __restrict__
+  - __forceinline__
+  - __noinline__
+  - __launch_bounds__
+
+# CUDA-specific macros to treat as functions
+ForEachMacros:
+  - foreach
+  - Q_FOREACH
+  - BOOST_FOREACH
+
+# Keep short CUDA attribute sequences on one line
+AlwaysBreakAfterReturnType: None

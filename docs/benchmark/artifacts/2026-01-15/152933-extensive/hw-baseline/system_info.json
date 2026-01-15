@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-01-15T15:29:34.010925",
+  "hostname": "hazy-tree-spreads-fin-02",
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "pci_bus": "00000000:06:00.0",
+      "memory": "81920 MiB",
+      "compute_cap": "8.0"
+    },
+    {
+      "index": 1,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "pci_bus": "00000000:07:00.0",
+      "memory": "81920 MiB",
+      "compute_cap": "8.0"
+    }
+  ],
+  "nvlink": {
+    "topology": "\t\u001b[4mGPU0\tGPU1\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\u001b[0m\nGPU0\t X \tNV2\t0-43\t0\t\tN/A\nGPU1\tNV2\t X \t0-43\t0\t\tN/A\n\nLegend:\n\n  X    = Self\n  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)\n  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node\n  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)\n  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)\n  PIX  = Connection traversing at most a single PCIe bridge\n  NV#  = Connection traversing a bonded set of # NVLinks\n",
+    "version": "NV2",
+    "links": 2
+  },
+  "cuda_version": "",
+  "driver_version": "",
+  "sweep_config": {
+    "mode": "extensive",
+    "sizes": [
+      "16M",
+      "128M"
+    ],
+    "timing_modes": [
+      "cuda-events",
+      "throughput",
+      "latency"
+    ],
+    "dtypes": [
+      "fp32",
+      "fp16",
+      "bf16"
+    ],
+    "runs": 10,
+    "calls": 20,
+    "exec_modes": [
+      "single",
+      "mpi"
+    ]
+  }
+}
