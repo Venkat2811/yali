@@ -4,13 +4,13 @@
 
 # YALI - Yet Another Low-Latency Implementation
 
-**2.2x faster than NCCL at 1MB. 50x+ more stable tail latency.**
+**2.4x faster than NCCL at 1MB. 50x+ more stable tail latency.**
 
-YALI is a 2-GPU NVLink AllReduce library that outperforms NVIDIA NCCL across the entire message size range (1.1x-2.2x), with profiler-verified benchmarks using NCCL's own busBw convention.
+YALI is a 2-GPU NVLink AllReduce library that outperforms NVIDIA NCCL across the entire message size range (1.2x-2.4x), with profiler-verified benchmarks using NCCL's own busBw convention.
 
 This is not a wrapper around NCCL. YALI is a ground-up implementation, starting with AllReduce and expanding to a full collective API.
 
-Built applying high-performance computing principles proven in HFT systems, distributed databases, and lock-free data structures: **static scheduling**, **prefetching**, and **pre-allocation**. Hardware likes predictability. YALI delivers it.
+Built applying high-performance computing principles proven in low-latency systems, distributed databases, and lock-free data structures: **static scheduling**, **prefetching**, and **pre-allocation**. Hardware likes predictability. YALI delivers it.
 
 Two kernel modes, one goal:
 - **Flash** - 3-stage double-buffered cp.async prefetch for latency-sensitive workloads (≤64MB)
@@ -29,13 +29,13 @@ The name comes from **Yali** (யாழி / யாளி) - a composite creatur
 ### Profiler-Verified Kernel Performance (nsys)
 
 <p align="center">
-  <img src="docs/benchmark/artifacts/2026-01-15/164632-quick-profiler/profiler/kernel_duration_comparison.png" alt="Kernel Duration Comparison" width="700">
+  <img src="assets/kernel_duration_comparison.png" alt="Kernel Duration Comparison" width="700">
 </p>
 
 ### Peak Performance by Data Type
 
 <p align="center">
-  <img src="docs/benchmark/artifacts/2026-01-15/152933-extensive/graphs/executive_summary.png" alt="Executive Summary" width="700">
+  <img src="assets/executive_summary.png" alt="Executive Summary" width="700">
 </p>
 
 ---
@@ -66,7 +66,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical document
 - **Two kernel modes**: Flash (small messages) and Stream (large messages)
 - **Dtype support**: FP32, FP16, BF16
 - **Single & Multi-process**: Both single-process and MPI multi-process support
-- **1.1x-2.2x faster than NCCL** across all sizes
+- **1.2x-2.4x faster than NCCL** across all sizes
 - **87% Speed-of-Light**: Near-optimal NVLink utilization
 - **50x+ more stable**: Dramatically lower tail latency variance
 
