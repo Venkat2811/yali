@@ -24,6 +24,42 @@ The name comes from **Yali** (யாழி / யாளி) - a composite creatur
 
 ---
 
+## Benchmarks
+
+### Profiler-Verified Kernel Performance (nsys)
+
+<p align="center">
+  <img src="docs/benchmark/artifacts/2026-01-15/164632-quick-profiler/profiler/kernel_duration_comparison.png" alt="Kernel Duration Comparison" width="700">
+</p>
+
+### Peak Performance by Data Type
+
+<p align="center">
+  <img src="docs/benchmark/artifacts/2026-01-15/152933-extensive/graphs/executive_summary.png" alt="Executive Summary" width="700">
+</p>
+
+---
+
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical documentation with ASCII diagrams.
+
+### Two Kernel Modes
+
+**Flash kernel** (≤64MB messages):
+- Direct GPU-to-GPU peer access via `cp.async`
+- 3-stage prefetch pipeline hides memory latency
+- Multi-CTA parallelism per lane
+- ~76 GB/s (81% SoL)
+
+**Stream kernel** (>64MB messages):
+- Ring buffer with sequence-based flow control
+- Bidirectional NVLink utilization
+- Fire-and-forget kernel launches
+- ~82 GB/s (87% SoL)
+
+---
+
 ## Key Features
 
 - **Simple API**: 3 lines of code for AllReduce (see below)
@@ -33,8 +69,6 @@ The name comes from **Yali** (யாழி / யாளி) - a composite creatur
 - **1.1x-2.2x faster than NCCL** across all sizes
 - **87% Speed-of-Light**: Near-optimal NVLink utilization
 - **50x+ more stable**: Dramatically lower tail latency variance
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical details on how YALI achieves this performance.
 
 ## Simple API Usage
 
@@ -51,22 +85,6 @@ yali::allreduce(comm, send0, recv0, send1, recv1, count);
 See `examples/01_single_process/01_allreduce/simple.cu` for a complete working example.
 
 *Built in collaboration with [Claude Code](https://claude.ai/code) and [Codex CLI](https://github.com/openai/codex)*
-
----
-
-## Benchmarks
-
-### Profiler-Verified Kernel Performance (nsys)
-
-<p align="center">
-  <img src="docs/benchmark/artifacts/2026-01-15/164632-quick-profiler/profiler/kernel_duration_comparison.png" alt="Kernel Duration Comparison" width="700">
-</p>
-
-### Peak Performance by Data Type
-
-<p align="center">
-  <img src="docs/benchmark/artifacts/2026-01-15/152933-extensive/graphs/executive_summary.png" alt="Executive Summary" width="700">
-</p>
 
 ---
 
@@ -139,24 +157,6 @@ bazel build //:example_simple   # Simple example
 # Build with specific GPU architecture
 bazel build //:benchmark_yali --config=h100  # H100
 ```
-
-## Architecture
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical documentation with ASCII diagrams.
-
-### Two Kernel Modes
-
-**Flash kernel** (≤64MB messages):
-- Direct GPU-to-GPU peer access via `cp.async`
-- 3-stage prefetch pipeline hides memory latency
-- Multi-CTA parallelism per lane
-- ~76 GB/s (81% SoL)
-
-**Stream kernel** (>64MB messages):
-- Ring buffer with sequence-based flow control
-- Bidirectional NVLink utilization
-- Fire-and-forget kernel launches
-- ~82 GB/s (87% SoL)
 
 ### Key Directories
 
