@@ -4,7 +4,7 @@
 
 # YALI - Yet Another Low-Latency Implementation
 
-**2.2x faster than NCCL at 1MB. 106x more stable tail latency at 256MB.**
+**2.2x faster than NCCL at 1MB. 50x+ more stable tail latency.**
 
 YALI is a 2-GPU NVLink AllReduce library that outperforms NVIDIA NCCL across the entire message size range (1.1x-2.2x), with profiler-verified benchmarks using NCCL's own busBw convention.
 
@@ -32,7 +32,7 @@ The name comes from **Yali** (யாழி / யாளி) - a composite creatur
 - **Single & Multi-process**: Both single-process and MPI multi-process support
 - **1.1x-2.2x faster than NCCL** across all sizes
 - **87% Speed-of-Light**: Near-optimal NVLink utilization
-- **106x more stable**: Dramatically lower tail latency variance
+- **50x+ more stable**: Dramatically lower tail latency variance
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical details on how YALI achieves this performance.
 
@@ -51,6 +51,22 @@ yali::allreduce(comm, send0, recv0, send1, recv1, count);
 See `examples/01_single_process/01_allreduce/simple.cu` for a complete working example.
 
 *Built in collaboration with [Claude Code](https://claude.ai/code) and [Codex CLI](https://github.com/openai/codex)*
+
+---
+
+## Benchmarks
+
+### Profiler-Verified Kernel Performance (nsys)
+
+<p align="center">
+  <img src="docs/benchmark/artifacts/2026-01-15/164632-quick-profiler/profiler/kernel_duration_comparison.png" alt="Kernel Duration Comparison" width="700">
+</p>
+
+### Peak Performance by Data Type
+
+<p align="center">
+  <img src="docs/benchmark/artifacts/2026-01-15/152933-extensive/graphs/executive_summary.png" alt="Executive Summary" width="700">
+</p>
 
 ---
 
