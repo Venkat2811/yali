@@ -302,6 +302,25 @@ Benchmarked with CUDA events timing on 2x A100-SXM4-80GB with NV4 (4 NVLinks @ 2
 | `YALI_DEV_WARMUP`        | 1       | Warmup iterations                  |
 | `YALI_DEV_ITERS`         | 5       | Measurement iterations             |
 
+## Citation
+
+If you use YALI in your research or project, please cite:
+
+```
+Venkat Raman. "YALI: Yet Another Low-Latency Implementation". GitHub (2026).
+https://github.com/Venkat2811/yali
+```
+
+```bibtex
+@misc{venkat2026yali,
+  title = {YALI: Yet Another Low-Latency Implementation},
+  author = {Venkat Raman},
+  year = {2026},
+  publisher = {GitHub},
+  url = {https://github.com/Venkat2811/yali}
+}
+```
+
 ## License
 
 See LICENSE file.
