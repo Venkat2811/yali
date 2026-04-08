@@ -92,16 +92,16 @@ All dependencies are pinned to specific versions for reproducibility:
 
 | Submodule   | Version   | Purpose                      |
 |:------------|:----------|:-----------------------------|
-| nccl        | v2.28.9-1 | NCCL library (baseline)      |
-| nccl-tests  | v2.17.6   | NCCL performance tests       |
+| nccl        | v2.29.7-1 | NCCL library (baseline)      |
+| nccl-tests  | v2.18.2   | NCCL performance tests       |
 | nvbandwidth | v0.8      | NVLink bandwidth measurement |
 
 ```bash
 # Verify versions
 git submodule status
 # Expected output:
-# dbc86fd... third_party/nccl (v2.28.9-1)
-# da0b547... third_party/nccl-tests (v2.17.6)
+# b91894b... third_party/nccl (v2.29.7-1)
+# af1dcac... third_party/nccl-tests (v2.18.2)
 # 66746a3... third_party/nvbandwidth (v0.8)
 ```
 
@@ -164,7 +164,7 @@ bazel build //:nccl_tests_bin
 ```
 **Outputs**: `all_reduce_perf` and `libnccl.so.2`
 
-**Important**: The nccl-tests binary is built against our NCCL v2.28.9 submodule, NOT system NCCL. This is achieved via `-isystem` compiler flag to prioritize our headers.
+**Important**: The nccl-tests binary is built against our NCCL v2.29.7 submodule, NOT system NCCL. This is achieved via `-isystem` compiler flag to prioritize our headers.
 
 ### Build nvbandwidth
 ```bash
@@ -501,8 +501,8 @@ yali/
 │   └── unit/                    # C++ unit tests
 │
 ├── third_party/
-│   ├── nccl/                    # NCCL submodule (v2.28.9-1)
-│   ├── nccl-tests/              # nccl-tests submodule (v2.17.6)
+│   ├── nccl/                    # NCCL submodule (v2.29.7-1)
+│   ├── nccl-tests/              # nccl-tests submodule (v2.18.2)
 │   └── nvbandwidth/             # nvbandwidth submodule (v0.8)
 │
 └── output/                      # Benchmark results (timestamped)

@@ -1,20 +1,20 @@
 #!/bin/bash
-# Build NCCL and nccl-tests with proper header isolation
-# Target: sm_80 (A100)
+# Build NCCL and nccl-tests with proper header isolation.
+# Default target: sm_80 (A100), override with SM_ARCH=90 for H100/H200.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
-NCCL_DIR="$ROOT_DIR/nccl"
-NCCL_TESTS_DIR="$ROOT_DIR/nccl-tests"
+NCCL_DIR="$ROOT_DIR/third_party/nccl"
+NCCL_TESTS_DIR="$ROOT_DIR/third_party/nccl-tests"
 OUTPUT_DIR="$ROOT_DIR/bin"
 
 # SM architecture (A100 = sm_80)
 SM_ARCH="${SM_ARCH:-80}"
 NVCC_GENCODE="-gencode=arch=compute_${SM_ARCH},code=sm_${SM_ARCH}"
 
-echo "=== Building NCCL v2.28.9 (sm_${SM_ARCH}) ==="
+echo "=== Building NCCL v2.29.7-1 (sm_${SM_ARCH}) ==="
 cd "$NCCL_DIR"
 make -j$(nproc) src.build NVCC_GENCODE="$NVCC_GENCODE"
 
@@ -23,7 +23,7 @@ echo "NCCL built at: $NCCL_BUILD"
 echo "NCCL header version: $(grep NCCL_VERSION_CODE $NCCL_BUILD/include/nccl.h | head -1)"
 
 echo ""
-echo "=== Building nccl-tests v2.17.6 (sm_${SM_ARCH}) ==="
+echo "=== Building nccl-tests v2.18.2 (sm_${SM_ARCH}) ==="
 cd "$NCCL_TESTS_DIR"
 rm -rf build
 

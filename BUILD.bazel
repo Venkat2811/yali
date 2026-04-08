@@ -14,12 +14,13 @@ cc_library(
         "third_party/nccl/src/include/**/*.h",
         "third_party/nccl/src/device/**/*.h",
         "third_party/nccl/src/device/**/*.cuh",
-    ]),
+    ]) + glob(["third_party/nccl/build/include/*.h"]),
     includes = [
         "third_party/nccl/src",
         "third_party/nccl/src/device",
         "third_party/nccl/src/include",
         "third_party/nccl/src/include/plugin",
+        "third_party/nccl/build/include",
     ],
     visibility = ["//visibility:public"],
 )

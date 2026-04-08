@@ -1,11 +1,11 @@
 [submodule "nccl"]
 	path = third_party/nccl
 	url = https://github.com/NVIDIA/nccl.git
-	branch = v2.28.9-1
+	branch = v2.29.7-1
 [submodule "nccl-tests"]
 	path = third_party/nccl-tests
 	url = https://github.com/NVIDIA/nccl-tests.git
-	branch = v2.17.6
+	branch = v2.18.2
 [submodule "nvbandwidth"]
 	path = third_party/nvbandwidth
 	url = https://github.com/NVIDIA/nvbandwidth.git

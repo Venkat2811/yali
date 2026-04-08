@@ -177,8 +177,8 @@ See [SETUP.md](SETUP.md) for the complete directory structure.
 
 | Submodule   | Version   | Purpose                           |
 |:------------|:----------|:----------------------------------|
-| nccl        | v2.28.9-1 | NCCL library (baseline + headers) |
-| nccl-tests  | v2.17.6   | NCCL performance tests            |
+| nccl        | v2.29.7-1 | NCCL library (baseline + headers) |
+| nccl-tests  | v2.18.2   | NCCL performance tests            |
 | nvbandwidth | v0.8      | NVLink bandwidth measurement      |
 
 Initialize:
