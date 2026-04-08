@@ -244,6 +244,18 @@ Examples:
                         help="Execution mode for --nccl-backend=tests")
     parser.add_argument("--nccl-tests-api", choices=["host", "device"], default="host",
                         help="API mode for --nccl-backend=tests (default: host)")
+    parser.add_argument("--nccl-tests-register", choices=["none", "local", "symmetric"], default="none",
+                        help="Buffer registration mode for --nccl-backend=tests (default: none)")
+    parser.add_argument("--nccl-tests-graph-launches", type=int, default=0,
+                        help="CUDA graph replay count for --nccl-backend=tests (default: 0)")
+    parser.add_argument("--nccl-tests-cta-policy", type=int, choices=[0, 1, 2],
+                        help="CTA policy for --nccl-backend=tests (0=default, 1=efficiency, 2=zero)")
+    parser.add_argument("--nccl-tests-device-impl", type=int, default=0,
+                        help="Device implementation id for --nccl-backend=tests (default: 0)")
+    parser.add_argument("--nccl-tests-device-cta-count", type=int, default=16,
+                        help="CTA count for nccl-tests device implementations (default: 16)")
+    parser.add_argument("--nccl-tests-blocking", type=int, choices=[1, 2],
+                        help="Blocking mode for --nccl-backend=tests")
     args = parser.parse_args()
 
     # Get bazel bin path
@@ -262,7 +274,18 @@ Examples:
         if not args.mpi and tests_mode == "mpi":
             print("nccl-tests MPI mode requires --mpi", file=sys.stderr)
             sys.exit(1)
-    nccl_tests_config = NcclTestsConfig(mode=tests_mode, api=args.nccl_tests_api, warmup_iters=1, iters=args.calls)
+    nccl_tests_config = NcclTestsConfig(
+        mode=tests_mode,
+        api=args.nccl_tests_api,
+        warmup_iters=1,
+        iters=args.calls,
+        register_mode=args.nccl_tests_register,
+        cudagraph_launches=args.nccl_tests_graph_launches,
+        cta_policy=args.nccl_tests_cta_policy,
+        device_impl=args.nccl_tests_device_impl,
+        device_cta_count=args.nccl_tests_device_cta_count,
+        blocking_mode=args.nccl_tests_blocking,
+    )
 
     # Check binaries exist
     yali_bin = f"{bazel_bin}/benchmark_yali_mpi" if args.mpi else f"{bazel_bin}/benchmark_yali"
@@ -290,7 +313,7 @@ Examples:
     print(f"Runs per size: {args.runs}, Calls per run: {args.calls}")
     print(f"NCCL mode: {args.nccl_mode}" + (f" ({args.nccl_tune_level})" if args.nccl_mode == "tuned" else ""))
     if args.nccl_backend == "tests":
-        print(f"NCCL backend: tests ({tests_mode}, {args.nccl_tests_api})")
+        print(f"NCCL backend: tests ({nccl_tests_config.describe()})")
     print("=" * 78)
     print()
 

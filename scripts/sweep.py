@@ -389,6 +389,12 @@ class SweepRunner:
         nccl_backend: str = "harness",
         nccl_tests_mode: Optional[str] = None,
         nccl_tests_api: str = "host",
+        nccl_tests_register: str = "none",
+        nccl_tests_graph_launches: int = 0,
+        nccl_tests_cta_policy: Optional[int] = None,
+        nccl_tests_device_impl: int = 0,
+        nccl_tests_device_cta_count: int = 16,
+        nccl_tests_blocking: Optional[int] = None,
     ):
         self.output_dir = output_dir
         self.config = config
@@ -408,6 +414,12 @@ class SweepRunner:
             api=nccl_tests_api,
             warmup_iters=1,
             iters=config.calls if config.calls > 0 else 1,
+            register_mode=nccl_tests_register,
+            cudagraph_launches=nccl_tests_graph_launches,
+            cta_policy=nccl_tests_cta_policy,
+            device_impl=nccl_tests_device_impl,
+            device_cta_count=nccl_tests_device_cta_count,
+            blocking_mode=nccl_tests_blocking,
         )
 
         if self.nccl_backend == "tests":
@@ -1631,7 +1643,7 @@ class SweepRunner:
         lines.append(f"**NCCL:** {self.nccl_mode}" +
                      (f" ({self.nccl_tune_level})" if self.nccl_mode == "tuned" else ""))
         if self.nccl_backend == "tests":
-            lines.append(f"**NCCL Backend:** nccl-tests ({self.nccl_tests_config.mode}, {self.nccl_tests_config.api})")
+            lines.append(f"**NCCL Backend:** nccl-tests ({self.nccl_tests_config.describe()})")
         lines.append("")
         lines.append("---")
         lines.append("")
@@ -2101,6 +2113,18 @@ Examples:
                         help="Execution mode for --nccl-backend=tests")
     parser.add_argument("--nccl-tests-api", choices=["host", "device"], default="host",
                         help="API mode for --nccl-backend=tests (default: host)")
+    parser.add_argument("--nccl-tests-register", choices=["none", "local", "symmetric"], default="none",
+                        help="Buffer registration mode for --nccl-backend=tests (default: none)")
+    parser.add_argument("--nccl-tests-graph-launches", type=int, default=0,
+                        help="CUDA graph replay count for --nccl-backend=tests (default: 0)")
+    parser.add_argument("--nccl-tests-cta-policy", type=int, choices=[0, 1, 2],
+                        help="CTA policy for --nccl-backend=tests (0=default, 1=efficiency, 2=zero)")
+    parser.add_argument("--nccl-tests-device-impl", type=int, default=0,
+                        help="Device implementation id for --nccl-backend=tests (default: 0)")
+    parser.add_argument("--nccl-tests-device-cta-count", type=int, default=16,
+                        help="CTA count for nccl-tests device implementations (default: 16)")
+    parser.add_argument("--nccl-tests-blocking", type=int, choices=[1, 2],
+                        help="Blocking mode for --nccl-backend=tests")
 
     args = parser.parse_args()
 
@@ -2170,6 +2194,12 @@ Examples:
         nccl_backend=args.nccl_backend,
         nccl_tests_mode=nccl_tests_mode,
         nccl_tests_api=args.nccl_tests_api,
+        nccl_tests_register=args.nccl_tests_register,
+        nccl_tests_graph_launches=args.nccl_tests_graph_launches,
+        nccl_tests_cta_policy=args.nccl_tests_cta_policy,
+        nccl_tests_device_impl=args.nccl_tests_device_impl,
+        nccl_tests_device_cta_count=args.nccl_tests_device_cta_count,
+        nccl_tests_blocking=args.nccl_tests_blocking,
     )
     success = runner.run()
 
