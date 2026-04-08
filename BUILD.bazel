@@ -761,6 +761,45 @@ genrule(
     visibility = ["//visibility:public"],
 )
 
+# Hopper-targeted NCCL tests (H100/H200 both use sm_90)
+genrule(
+    name = "nccl_tests_bin_hopper",
+    srcs = glob(["third_party/nccl-tests/**"]) + glob(["third_party/nccl/**"]),
+    outs = [
+        "all_reduce_perf_hopper",
+        "libnccl_hopper.so.2",
+    ],
+    cmd = """
+        set -e
+        export CUDA_HOME=$${CUDA_HOME:-/usr/local/cuda}
+        OUTDIR=$$PWD
+        cd third_party/nccl
+        make -j$$(nproc) src.build NVCC_GENCODE="-gencode=arch=compute_90,code=sm_90" 2>&1
+        NCCL_BUILD=$$PWD/build
+        cd ..
+        cd nccl-tests
+        rm -rf build
+        make -j$$(nproc) MPI=0 CUDA_HOME=$$CUDA_HOME NCCL_HOME=$$NCCL_BUILD \\
+            NVCC_GENCODE="-gencode=arch=compute_90,code=sm_90" \\
+            NVCUFLAGS="-ccbin g++ -gencode=arch=compute_90,code=sm_90 -std=c++17 -O3 -g -isystem $$NCCL_BUILD/include" 2>&1
+        cp build/all_reduce_perf $$OUTDIR/$(location all_reduce_perf_hopper)
+        cp $$NCCL_BUILD/lib/libnccl.so.2 $$OUTDIR/$(location libnccl_hopper.so.2)
+    """,
+    local = True,
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "nccl_tests_bin_h100",
+    actual = ":nccl_tests_bin_hopper",
+)
+
+alias(
+    name = "nccl_tests_bin_h200",
+    actual = ":nccl_tests_bin_hopper",
+)
+
 # NCCL tests with MPI support (for multi-process mode)
 # Requires: apt-get install openmpi-bin libopenmpi-dev
 genrule(
@@ -799,6 +838,49 @@ genrule(
     visibility = ["//visibility:public"],
 )
 
+genrule(
+    name = "nccl_tests_mpi_bin_hopper",
+    srcs = glob(["third_party/nccl-tests/**"]) + glob(["third_party/nccl/**"]),
+    outs = [
+        "all_reduce_perf_mpi_hopper",
+        "libnccl_mpi_hopper.so.2",
+    ],
+    cmd = """
+        set -e
+        export CUDA_HOME=$${CUDA_HOME:-/usr/local/cuda}
+        OUTDIR=$$PWD
+        if ! command -v mpicc >/dev/null 2>&1; then
+            echo "ERROR: MPI not found. Install with: apt-get install openmpi-bin libopenmpi-dev"
+            exit 1
+        fi
+        MPI_HOME=$$(dirname $$(dirname $$(which mpicc)))
+        cd third_party/nccl
+        make -j$$(nproc) src.build NVCC_GENCODE="-gencode=arch=compute_90,code=sm_90" 2>&1
+        NCCL_BUILD=$$PWD/build
+        cd ..
+        cd nccl-tests
+        rm -rf build
+        make -j$$(nproc) MPI=1 MPI_HOME=$$MPI_HOME CUDA_HOME=$$CUDA_HOME NCCL_HOME=$$NCCL_BUILD \\
+            NVCC_GENCODE="-gencode=arch=compute_90,code=sm_90" \\
+            NVCUFLAGS="-ccbin g++ -gencode=arch=compute_90,code=sm_90 -std=c++17 -O3 -g -isystem $$NCCL_BUILD/include" 2>&1
+        cp build/all_reduce_perf $$OUTDIR/$(location all_reduce_perf_mpi_hopper)
+        cp $$NCCL_BUILD/lib/libnccl.so.2 $$OUTDIR/$(location libnccl_mpi_hopper.so.2)
+    """,
+    local = True,
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "nccl_tests_mpi_bin_h100",
+    actual = ":nccl_tests_mpi_bin_hopper",
+)
+
+alias(
+    name = "nccl_tests_mpi_bin_h200",
+    actual = ":nccl_tests_mpi_bin_hopper",
+)
+
 # Build nvbandwidth binary (sm_80 for A100)
 genrule(
     name = "nvbandwidth_bin",
@@ -816,6 +898,34 @@ genrule(
     """,
     tags = ["manual"],
     visibility = ["//visibility:public"],
+)
+
+genrule(
+    name = "nvbandwidth_bin_hopper",
+    srcs = glob(["third_party/nvbandwidth/**"]),
+    outs = ["nvbandwidth_hopper"],
+    cmd = """
+        set -e
+        export CUDA_HOME=$${CUDA_HOME:-/usr/local/cuda}
+        OUTDIR=$$PWD
+        cd third_party/nvbandwidth
+        mkdir -p build && cd build
+        cmake .. -DCMAKE_CUDA_ARCHITECTURES=90 2>&1
+        make -j$$(nproc) 2>&1
+        cp nvbandwidth $$OUTDIR/$@
+    """,
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "nvbandwidth_bin_h100",
+    actual = ":nvbandwidth_bin_hopper",
+)
+
+alias(
+    name = "nvbandwidth_bin_h200",
+    actual = ":nvbandwidth_bin_hopper",
 )
 
 # =============================================================================
@@ -1249,6 +1359,7 @@ cuda_library(
     rdc = True,
     deps = [
         ":nccl_headers",
+        ":yali_src_hdrs",
         "@local_cuda//:cuda_runtime",
     ],
 )
@@ -1313,6 +1424,7 @@ cuda_library(
     rdc = True,
     deps = [
         ":nccl_headers",
+        ":yali_src_hdrs",
         "@local_cuda//:cuda_runtime",
     ],
 )

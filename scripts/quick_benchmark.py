@@ -29,7 +29,10 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, List, Tuple
+
+from nccl_tuning import NcclTuner
 
 # Standard benchmark sizes (element counts for fp32)
 SIZE_PRESETS = {
@@ -132,8 +135,9 @@ def run_benchmark_with_stats(
     num_runs: int,
     calls_per_run: int,
     mpi: bool,
-    bench_type: str  # "YALI" or "NCCL"
-) -> Optional[BenchStats]:
+    bench_type: str,  # "YALI" or "NCCL"
+    tuner: Optional[NcclTuner] = None,
+) -> Tuple[Optional[BenchStats], Optional[str]]:
     """Run benchmark multiple times and collect statistics."""
 
     if bench_type == "YALI":
@@ -166,8 +170,18 @@ def run_benchmark_with_stats(
 
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = "0,1"
+    selected_config = None
     if bench_type == "NCCL":
-        env["LD_LIBRARY_PATH"] = f"third_party/nccl/build/lib:{env.get('LD_LIBRARY_PATH', '')}"
+        if tuner is not None:
+            bench_key = ("mpi" if mpi else "single", elements, calls_per_run, "cuda-events", "fp32")
+            env, selected_config = tuner.resolve(
+                bench_key,
+                elements * 4,
+                env,
+                lambda candidate_env: run_single_benchmark(cmd, candidate_env, bench_type),
+            )
+        else:
+            env["LD_LIBRARY_PATH"] = f"third_party/nccl/build/lib:{env.get('LD_LIBRARY_PATH', '')}"
 
     samples = []
     for _ in range(num_runs):
@@ -175,7 +189,7 @@ def run_benchmark_with_stats(
         if gbps is not None:
             samples.append(gbps)
 
-    return BenchStats.from_samples(samples)
+    return BenchStats.from_samples(samples), selected_config
 
 
 def format_stats(stats: Optional[BenchStats], show_stddev: bool = True) -> str:
@@ -210,6 +224,10 @@ Examples:
                         help="Number of iterations per run (default: 20)")
     parser.add_argument("--detailed", action="store_true",
                         help="Show detailed statistics (min, max, CV)")
+    parser.add_argument("--nccl-mode", choices=["default", "tuned"], default="default",
+                        help="NCCL benchmark mode (default: default)")
+    parser.add_argument("--nccl-tune-level", choices=["basic", "extended"], default="basic",
+                        help="Tuning matrix used when --nccl-mode=tuned (default: basic)")
     args = parser.parse_args()
 
     # Get bazel bin path
@@ -219,6 +237,7 @@ Examples:
 
     bazel_bin = get_bazel_bin()
     mode_str = "MPI (2 processes)" if args.mpi else "Single-process (2 GPUs)"
+    tuner = NcclTuner(Path(project_dir), mode=args.nccl_mode, level=args.nccl_tune_level)
 
     # Check binaries exist
     yali_bin = f"{bazel_bin}/benchmark_yali_mpi" if args.mpi else f"{bazel_bin}/benchmark_yali"
@@ -242,6 +261,7 @@ Examples:
     print("=" * 78)
     print(f"YALI vs NCCL AllReduce Benchmark (FP32, {mode_str})")
     print(f"Runs per size: {args.runs}, Calls per run: {args.calls}")
+    print(f"NCCL mode: {args.nccl_mode}" + (f" ({args.nccl_tune_level})" if args.nccl_mode == "tuned" else ""))
     print("=" * 78)
     print()
 
@@ -252,7 +272,7 @@ Examples:
         print(f"{'Size':>8} {'YALI (GB/s)':>16} {'NCCL (GB/s)':>16} {'Speedup':>12}")
         print("-" * 56)
 
-    results: List[Tuple[str, Optional[BenchStats], Optional[BenchStats]]] = []
+    results: List[Tuple[str, Optional[BenchStats], Optional[BenchStats], Optional[str]]] = []
 
     for size_str in args.sizes:
         try:
@@ -270,12 +290,12 @@ Examples:
             size_label = f"{mb*1000:.0f}KB"
 
         # Run benchmarks
-        yali_stats = run_benchmark_with_stats(
+        yali_stats, _ = run_benchmark_with_stats(
             bazel_bin, elements, args.runs, args.calls, args.mpi, "YALI")
-        nccl_stats = run_benchmark_with_stats(
-            bazel_bin, elements, args.runs, args.calls, args.mpi, "NCCL")
+        nccl_stats, nccl_config = run_benchmark_with_stats(
+            bazel_bin, elements, args.runs, args.calls, args.mpi, "NCCL", tuner=tuner)
 
-        results.append((size_label, yali_stats, nccl_stats))
+        results.append((size_label, yali_stats, nccl_stats, nccl_config))
 
         # Format output
         yali_str = format_stats(yali_stats, show_stddev=(args.runs > 1))
@@ -300,7 +320,7 @@ Examples:
         print("-" * 56)
 
     # Summary
-    valid_results = [(y, n) for _, y, n in results if y and n]
+    valid_results = [(y, n) for _, y, n, _ in results if y and n]
     if valid_results:
         avg_speedup = sum(y.mean/n.mean for y, n in valid_results) / len(valid_results)
         if args.detailed:
@@ -318,7 +338,7 @@ Examples:
         print("=" * 78)
         print("Detailed Statistics")
         print("=" * 78)
-        for size_label, yali_stats, nccl_stats in results:
+        for size_label, yali_stats, nccl_stats, _ in results:
             if yali_stats and nccl_stats:
                 print(f"\n{size_label}:")
                 print(f"  YALI: mean={yali_stats.mean:.2f}, stddev={yali_stats.stddev:.2f}, "
@@ -327,6 +347,12 @@ Examples:
                 print(f"  NCCL: mean={nccl_stats.mean:.2f}, stddev={nccl_stats.stddev:.2f}, "
                       f"min={nccl_stats.min_val:.2f}, max={nccl_stats.max_val:.2f}")
                 print(f"        samples: {[f'{s:.2f}' for s in nccl_stats.samples]}")
+
+    if args.nccl_mode == "tuned":
+        print()
+        print("Selected NCCL configs:")
+        for size_label, _, _, nccl_config in results:
+            print(f"  {size_label:>8}: {nccl_config or 'default'}")
 
 
 if __name__ == "__main__":

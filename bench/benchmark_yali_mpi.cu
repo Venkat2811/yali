@@ -148,6 +148,7 @@ void benchmarkFlashTyped(YaliMPComm* comm, size_t elemCount, int numCalls, int w
     const int worldSize = comm->worldSize;
     const int peerRank = 1 - myRank;  // For 2-rank
     const size_t bytes = elemCount * dtype.elementSize;
+    const yali::NVLinkInfo nvlink = yali::DetectNVLinkConfig();
 
     // Flash kernel config
     const int blockSize = 512;
@@ -309,14 +310,14 @@ void benchmarkFlashTyped(YaliMPComm* comm, size_t elemCount, int numCalls, int w
     double dataBytes = static_cast<double>(bytes);
     double busBwFactor = 2.0 * static_cast<double>(worldSize - 1) / static_cast<double>(worldSize);
     double gbps = (dataBytes * busBwFactor / 1e9) / (avgUs / 1e6);
-    double solPercent = gbps / 100.0 * 100.0;
+    const yali::SoLMetrics sol = yali::CalculateSoL(bytes, avgUs / 1e6, worldSize, nvlink);
 
     if (myRank == 0) {
         const char* modeStr = (timingMode == TimingMode::CudaEvents)   ? "cuda-events"
                               : (timingMode == TimingMode::Throughput) ? "throughput"
                                                                        : "latency";
         printf("YALI MPI (Flash-%s, %s): %d calls, %.2f us/call avg, %.2f GB/s (%.1f%% SoL)\n", dtype.name, modeStr,
-               numCalls, avgUs, gbps, solPercent);
+               numCalls, avgUs, gbps, sol.solPercent);
     }
 
     // Verification
@@ -367,6 +368,7 @@ void benchmarkStreamTyped(YaliMPComm* comm, size_t elemCount, int numCalls, int 
     const int worldSize = comm->worldSize;
     const int peerRank = 1 - myRank;
     const size_t bytes = elemCount * dtype.elementSize;
+    const yali::NVLinkInfo nvlink = yali::DetectNVLinkConfig();
 
     // Stream kernel config
     int lanes = (lanesOverride > 0) ? lanesOverride : yali::StreamLanePreset(bytes, dtype.tuningDtype);
@@ -612,14 +614,14 @@ void benchmarkStreamTyped(YaliMPComm* comm, size_t elemCount, int numCalls, int 
     double dataBytes = static_cast<double>(bytes);
     double busBwFactor = 2.0 * static_cast<double>(worldSize - 1) / static_cast<double>(worldSize);
     double gbps = (dataBytes * busBwFactor / 1e9) / (avgUs / 1e6);
-    double solPercent = gbps / 100.0 * 100.0;
+    const yali::SoLMetrics sol = yali::CalculateSoL(bytes, avgUs / 1e6, worldSize, nvlink);
 
     if (myRank == 0) {
         const char* modeStr = (timingMode == TimingMode::CudaEvents)   ? "cuda-events"
                               : (timingMode == TimingMode::Throughput) ? "throughput"
                                                                        : "latency";
         printf("YALI MPI (Stream-%s, %s): %d calls, %.2f us/call avg, %.2f GB/s (%.1f%% SoL)\n", dtype.name, modeStr,
-               numCalls, avgUs, gbps, solPercent);
+               numCalls, avgUs, gbps, sol.solPercent);
     }
 
     // Verification

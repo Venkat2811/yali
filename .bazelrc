@@ -17,6 +17,8 @@ build --@rules_cuda//cuda:copts=-lineinfo
 # Architecture configs for different GPUs
 build:a100 --@rules_cuda//cuda:archs=compute_80:compute_80,sm_80
 build:h100 --@rules_cuda//cuda:archs=compute_90:compute_90,sm_90
+build:h200 --@rules_cuda//cuda:archs=compute_90:compute_90,sm_90
+build:b200 --@rules_cuda//cuda:archs=compute_100:compute_100,sm_100
 
 # Multi-arch build (both A100 and H100)
 build:multi --@rules_cuda//cuda:archs=compute_80:compute_80,sm_80;compute_90:compute_90,sm_90

@@ -131,6 +131,7 @@ void benchmarkFlashTyped(size_t elemCount, int numCalls, int warmupCalls, bool v
                          int lanesOverride = 0, TimingMode timingMode = TimingMode::Throughput) {
     constexpr int kRanks = 2;
     const size_t bytes = elemCount * dtype.elementSize;
+    const yali::NVLinkInfo nvlink = yali::DetectNVLinkConfig();
 
     // Flash kernel config
     const int blockSize = 512;
@@ -303,13 +304,13 @@ void benchmarkFlashTyped(size_t elemCount, int numCalls, int warmupCalls, bool v
     double dataBytes = static_cast<double>(bytes);
     double busBwFactor = 2.0 * static_cast<double>(nranks - 1) / static_cast<double>(nranks);
     double gbps = (dataBytes * busBwFactor / 1e9) / (avgUs / 1e6);
-    double solPercent = gbps / 100.0 * 100.0;  // vs 100 GB/s unidirectional NVLink
+    const yali::SoLMetrics sol = yali::CalculateSoL(bytes, avgUs / 1e6, kRanks, nvlink);
 
     const char* modeStr = (timingMode == TimingMode::CudaEvents)   ? "cuda-events"
                           : (timingMode == TimingMode::Throughput) ? "throughput"
                                                                    : "latency";
     printf("YALI (Flash-%s, %s): %d calls, %.2f us/call avg, %.2f GB/s (%.1f%% SoL)\n", dtype.name, modeStr, numCalls,
-           avgUs, gbps, solPercent);
+           avgUs, gbps, sol.solPercent);
 
     // Correctness verification
     if (verify) {
@@ -364,6 +365,7 @@ void benchmarkStreamTyped(size_t elemCount, int numCalls, int warmupCalls, bool 
                           int lanesOverride = 0, TimingMode timingMode = TimingMode::Throughput) {
     constexpr int kRanks = 2;
     const size_t bytes = elemCount * dtype.elementSize;
+    const yali::NVLinkInfo nvlink = yali::DetectNVLinkConfig();
 
     // Stream kernel config - allow override for testing (dtype-aware)
     int lanes = (lanesOverride > 0) ? lanesOverride : yali::StreamLanePreset(bytes, dtype.tuningDtype);
@@ -671,17 +673,14 @@ void benchmarkStreamTyped(size_t elemCount, int numCalls, int warmupCalls, bool 
     double dataBytes = static_cast<double>(bytes);
     double busBwFactor = 2.0 * static_cast<double>(nranks - 1) / static_cast<double>(nranks);
     double gbps = (dataBytes * busBwFactor / 1e9) / (avgUs / 1e6);
-
-    // Calculate Speed-of-Light (assuming NV4 = 100 GB/s unidirectional)
-    double nvlinkUniGBs = 100.0;  // A100 NV4 unidirectional
-    double solPercent = (gbps / nvlinkUniGBs) * 100.0;
+    const yali::SoLMetrics sol = yali::CalculateSoL(bytes, avgUs / 1e6, kRanks, nvlink);
 
     printf("--------------------------------------------------------------------------------\n");
     printf("Results:\n");
     printf("  Total time:     %.2f ms\n", totalMs);
     printf("  Avg latency:    %.2f us/call\n", avgUs);
     printf("  Bus bandwidth:  %.2f GB/s\n", gbps);
-    printf("  Speed-of-Light: %.1f%% (of %.0f GB/s NVLink uni)\n", solPercent, nvlinkUniGBs);
+    printf("  Speed-of-Light: %.1f%% (of %.0f GB/s NVLink uni)\n", sol.solPercent, sol.unidirectionalPeakGBs);
     printf("--------------------------------------------------------------------------------\n");
 
     // One-line summary for easy parsing
@@ -689,7 +688,7 @@ void benchmarkStreamTyped(size_t elemCount, int numCalls, int warmupCalls, bool 
                           : (timingMode == TimingMode::Throughput) ? "throughput"
                                                                    : "latency";
     printf("YALI (Stream-%s, %s): %d calls, %.2f us/call, %.2f GB/s, %.1f%% SoL\n", dtype.name, modeStr, numCalls,
-           avgUs, gbps, solPercent);
+           avgUs, gbps, sol.solPercent);
 
     // ==========================================================================
     // CORRECTNESS VERIFICATION

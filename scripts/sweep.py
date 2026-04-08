@@ -43,6 +43,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
+from nccl_tuning import NcclTuner
+
 # =============================================================================
 # Constants
 # =============================================================================
@@ -375,12 +377,23 @@ class ProgressTracker:
 class SweepRunner:
     """Orchestrates the comprehensive benchmark sweep."""
 
-    def __init__(self, output_dir: Path, config: SweepConfig, verbose: bool = True):
+    def __init__(
+        self,
+        output_dir: Path,
+        config: SweepConfig,
+        verbose: bool = True,
+        nccl_mode: str = "default",
+        nccl_tune_level: str = "basic",
+    ):
         self.output_dir = output_dir
         self.config = config
         self.verbose = verbose
         self.bazel_bin = None
         self.d2d_bw = 93.70  # Default, updated by nvbandwidth
+        self.project_dir = Path(__file__).parent.parent
+        self.nccl_mode = nccl_mode
+        self.nccl_tune_level = nccl_tune_level
+        self.nccl_tuner = NcclTuner(self.project_dir, mode=nccl_mode, level=nccl_tune_level)
 
         # Results storage: results[exec_mode][library][dtype][timing][size] = BenchStats
         self.results: Dict[str, Dict[str, Dict[str, Dict[str, Dict[str, BenchStats]]]]] = {}
@@ -603,14 +616,31 @@ class SweepRunner:
                    "-x", "CUDA_VISIBLE_DEVICES"]
             if bench_type == "nccl":
                 cmd.extend(["-x", "LD_LIBRARY_PATH"])
+                if self.nccl_tuner.enabled():
+                    cmd.extend([
+                        "-x", "NCCL_ALGO",
+                        "-x", "NCCL_PROTO",
+                        "-x", "NCCL_MIN_NCHANNELS",
+                        "-x", "NCCL_MAX_NCHANNELS",
+                    ])
             cmd.extend([f"{bazel_bin}/{binary}"] + args)
         else:
             cmd = [f"{bazel_bin}/{binary}"] + args
 
         env = {"CUDA_VISIBLE_DEVICES": "0,1"}
         if bench_type == "nccl":
-            env["LD_LIBRARY_PATH"] = f"third_party/nccl/build/lib:{os.environ.get('LD_LIBRARY_PATH', '')}"
+            size_bytes = elements * self.config.dtypes[dtype]
+            bench_key = (exec_mode, elements, self.config.calls, timing_mode, dtype)
+            env, _ = self.nccl_tuner.resolve(
+                bench_key,
+                size_bytes,
+                env,
+                lambda candidate_env: self._run_single_benchmark_command(cmd, candidate_env, bench_type),
+            )
 
+        return self._run_single_benchmark_command(cmd, env, bench_type)
+
+    def _run_single_benchmark_command(self, cmd: List[str], env: Dict[str, str], bench_type: str) -> Optional[float]:
         result = self.run_cmd(cmd, env=env, timeout=180)
 
         for line in result.stdout.split("\n"):
@@ -640,6 +670,7 @@ class SweepRunner:
                 for size_name in self.config.sizes:
                     size_bytes = SIZE_BYTES[size_name]
                     elements = size_bytes // elem_size
+                    bench_key = (exec_mode, elements, self.config.calls, timing_mode, dtype)
 
                     samples = []
                     for run in range(self.config.runs):
@@ -650,6 +681,10 @@ class SweepRunner:
 
                     stats = BenchStats.from_samples(samples)
                     if stats:
+                        nccl_config = ""
+                        if bench_type == "nccl":
+                            selected = self.nccl_tuner.get_selection(bench_key)
+                            nccl_config = selected.name if selected else "default"
                         all_results[dtype][timing_mode][size_name] = stats
                         csv_data.append({
                             "timing_mode": timing_mode,
@@ -666,6 +701,7 @@ class SweepRunner:
                             "p95": stats.p95,
                             "p99": stats.p99,
                             "sol_pct": self.sol_pct(stats.mean),
+                            "nccl_config": nccl_config,
                             "runs": len(stats.samples),
                             "samples": ",".join(f"{s:.2f}" for s in stats.samples),
                         })
@@ -695,6 +731,23 @@ class SweepRunner:
 
             # NCCL
             self.results[exec_mode]["nccl"] = self.run_benchmark_sweep(exec_mode, "nccl")
+
+    def write_nccl_tuning_metadata(self):
+        """Persist NCCL tuning selections for reproducibility."""
+        if not self.nccl_tuner.enabled():
+            return
+
+        tuning_file = self.output_dir / "nccl_tuning.json"
+        with open(tuning_file, "w") as f:
+            json.dump(
+                {
+                    "mode": self.nccl_mode,
+                    "level": self.nccl_tune_level,
+                    "selections": self.nccl_tuner.selection_records(),
+                },
+                f,
+                indent=2,
+            )
 
     # =========================================================================
     # Phase 6: Graph Generation
@@ -1514,6 +1567,8 @@ class SweepRunner:
         lines.append(f"**Mode:** {self.config.mode.title()} | "
                     f"Dtypes: {', '.join(d.upper() for d in self.config.dtypes)} | "
                     f"Sizes: {len(self.config.sizes)} | Runs: {self.config.runs}")
+        lines.append(f"**NCCL:** {self.nccl_mode}" +
+                     (f" ({self.nccl_tune_level})" if self.nccl_mode == "tuned" else ""))
         lines.append("")
         lines.append("---")
         lines.append("")
@@ -1913,6 +1968,7 @@ class SweepRunner:
 
         # Phase 5: All Benchmarks
         self.run_all_benchmarks()
+        self.write_nccl_tuning_metadata()
 
         # Phase 5b: Profiler (if enabled)
         self.run_profiled_benchmarks()
@@ -1972,6 +2028,10 @@ Examples:
     parser.add_argument("--output", type=str, help="Output directory")
     parser.add_argument("--quiet", action="store_true", help="Reduce output verbosity")
     parser.add_argument("--profiler", action="store_true", help="Enable nsys profiler (requires nsys)")
+    parser.add_argument("--nccl-mode", choices=["default", "tuned"], default="default",
+                        help="NCCL benchmark mode (default: default)")
+    parser.add_argument("--nccl-tune-level", choices=["basic", "extended"], default="basic",
+                        help="Tuning matrix used when --nccl-mode=tuned (default: basic)")
 
     args = parser.parse_args()
 
@@ -2028,7 +2088,13 @@ Examples:
     os.chdir(project_dir)
 
     # Run sweep
-    runner = SweepRunner(output_dir, config, verbose=not args.quiet)
+    runner = SweepRunner(
+        output_dir,
+        config,
+        verbose=not args.quiet,
+        nccl_mode=args.nccl_mode,
+        nccl_tune_level=args.nccl_tune_level,
+    )
     success = runner.run()
 
     sys.exit(0 if success else 1)

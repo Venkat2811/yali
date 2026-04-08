@@ -20,6 +20,28 @@ CUDA_ARCH ?= $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>
 ifeq ($(CUDA_ARCH),)
     CUDA_ARCH := 80
 endif
+GPU_NAME ?= $(shell nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+
+# Map detected GPU to Bazel config and external-tool targets.
+# Benchmarks use rules_cuda and should always get an explicit config on Hopper/Blackwell.
+BAZEL_GPU_CONFIG :=
+NCCL_TESTS_TARGET := //:nccl_tests_bin
+NCCL_TESTS_MPI_TARGET := //:nccl_tests_mpi_bin
+NVBANDWIDTH_TARGET := //:nvbandwidth_bin
+
+ifneq (,$(findstring H200,$(GPU_NAME)))
+    BAZEL_GPU_CONFIG := --config=h200
+    NCCL_TESTS_TARGET := //:nccl_tests_bin_h200
+    NCCL_TESTS_MPI_TARGET := //:nccl_tests_mpi_bin_h200
+    NVBANDWIDTH_TARGET := //:nvbandwidth_bin_h200
+else ifneq (,$(findstring H100,$(GPU_NAME)))
+    BAZEL_GPU_CONFIG := --config=h100
+    NCCL_TESTS_TARGET := //:nccl_tests_bin_h100
+    NCCL_TESTS_MPI_TARGET := //:nccl_tests_mpi_bin_h100
+    NVBANDWIDTH_TARGET := //:nvbandwidth_bin_h100
+else ifneq (,$(findstring B200,$(GPU_NAME)))
+    BAZEL_GPU_CONFIG := --config=b200
+endif
 
 # Results directory for benchmark outputs
 RESULTS_DIR ?= output/$(shell date +%Y-%m-%d)
@@ -33,6 +55,8 @@ setup: deps submodules venv
 	@echo ""
 	@echo "=== Setup Complete ==="
 	@echo "Detected GPU architecture: sm_$(CUDA_ARCH)"
+	@echo "Detected GPU: $(GPU_NAME)"
+	@echo "Bazel GPU config: $(if $(BAZEL_GPU_CONFIG),$(BAZEL_GPU_CONFIG),<default>)"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  source venv-2xa100/bin/activate"
@@ -81,6 +105,8 @@ venv:
 
 detect-arch:
 	@echo "Detected GPU architecture: sm_$(CUDA_ARCH)"
+	@echo "Detected GPU: $(GPU_NAME)"
+	@echo "Bazel GPU config: $(if $(BAZEL_GPU_CONFIG),$(BAZEL_GPU_CONFIG),<default>)"
 	@nvidia-smi --query-gpu=name,compute_cap --format=csv
 
 # === Build Targets ===
@@ -90,15 +116,15 @@ build: build-yali
 # Build YALI benchmark
 build-yali:
 	@echo "Building YALI benchmark for sm_$(CUDA_ARCH)..."
-	bazel build //:benchmark_yali //:benchmark_nccl
+	bazel build $(BAZEL_GPU_CONFIG) //:benchmark_yali //:benchmark_nccl
 
 build-nccl:
 	@echo "Building NCCL + nccl-tests for sm_$(CUDA_ARCH)..."
-	bazel build //:nccl_tests_bin
+	bazel build $(BAZEL_GPU_CONFIG) $(NCCL_TESTS_TARGET)
 
 build-nvbandwidth:
 	@echo "Building nvbandwidth for sm_$(CUDA_ARCH)..."
-	bazel build //:nvbandwidth_bin
+	bazel build $(BAZEL_GPU_CONFIG) $(NVBANDWIDTH_TARGET)
 
 build-nccl-mpi:
 	@echo "Building NCCL + nccl-tests with MPI support for sm_$(CUDA_ARCH)..."
@@ -130,13 +156,15 @@ build-yali-mpi:
 		echo "ERROR: MPI not found. Run: make setup-mpi"; \
 		exit 1; \
 	fi
-	bazel build //:benchmark_yali_mpi //:benchmark_nccl_mpi
+	bazel build $(BAZEL_GPU_CONFIG) //:benchmark_yali_mpi //:benchmark_nccl_mpi
 
 build-all: build-yali build-nccl build-nvbandwidth build-unit-tests
 	@echo ""
 	@echo "=== Build Complete ==="
 	@echo "BAZEL_BIN=$$(bazel info bazel-bin)"
 	@echo "GPU Architecture: sm_$(CUDA_ARCH)"
+	@echo "Detected GPU: $(GPU_NAME)"
+	@echo "Bazel GPU config: $(if $(BAZEL_GPU_CONFIG),$(BAZEL_GPU_CONFIG),<default>)"
 
 # === Test Targets ===
 
@@ -157,7 +185,7 @@ validate:
 # Build C++ unit tests using cuda_library (incremental builds)
 build-unit-tests:
 	@echo "=== Building C++ Unit Tests for sm_$(CUDA_ARCH) ==="
-	bazel build //:test_dtypes //:test_all_reduce_correctness //:test_validation \
+	bazel build $(BAZEL_GPU_CONFIG) //:test_dtypes //:test_all_reduce_correctness //:test_validation \
 		//:test_peer_access //:test_buffer_ops //:test_all_reduce_interface
 
 # Run C++ unit tests
@@ -184,7 +212,7 @@ test-all: test-unit-cpp test-unit test-correctness test-examples test-ops
 # Build examples
 build-examples:
 	@echo "=== Building Examples ==="
-	bazel build //:example_simple //:example_multilane //:test_ops_allreduce
+	bazel build $(BAZEL_GPU_CONFIG) //:example_simple //:example_multilane //:test_ops_allreduce
 
 # Build MPI examples
 build-examples-mpi:
@@ -193,7 +221,7 @@ build-examples-mpi:
 		echo "ERROR: MPI not found. Run: make setup-mpi"; \
 		exit 1; \
 	fi
-	bazel build //:example_simple_mpi //:example_multilane_mpi
+	bazel build $(BAZEL_GPU_CONFIG) //:example_simple_mpi //:example_multilane_mpi
 
 # Test examples (correctness)
 test-examples: build-examples
@@ -512,6 +540,7 @@ help:
 	@echo ""
 	@echo "GPU Architecture:"
 	@echo "  Auto-detected: sm_$(CUDA_ARCH)"
+	@echo "  Bazel config:   $(if $(BAZEL_GPU_CONFIG),$(BAZEL_GPU_CONFIG),<default>)"
 	@echo "  Override:      make build-all CUDA_ARCH=90  (for H100)"
 	@echo ""
 	@echo "Quick start:"
@@ -683,5 +712,4 @@ sweep-nccl-all-modes: sweep-nccl-1proc-1thr sweep-nccl-1proc-2thr
 	else \
 		echo "Mode 3 (2proc-mpi):  SKIPPED (MPI not available)"; \
 	fi
-
 

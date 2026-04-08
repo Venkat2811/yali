@@ -29,6 +29,8 @@
 #include <string>
 #include <vector>
 
+#include "src/common/hw_info.cuh"
+
 #define CHECK_CUDA(cmd)                                                                                                \
     do {                                                                                                               \
         cudaError_t e = cmd;                                                                                           \
@@ -107,6 +109,7 @@ void benchmarkNCCL(size_t elemCount, int numCalls, int warmupCalls, TimingMode t
                    const NCCLDTypeConfig& dtype) {
     const int nGpus = 2;
     const size_t bytes = elemCount * dtype.elementSize;
+    const yali::NVLinkInfo nvlink = yali::DetectNVLinkConfig();
 
     // Setup - done once
     ncclComm_t comms[nGpus];
@@ -224,13 +227,13 @@ void benchmarkNCCL(size_t elemCount, int numCalls, int warmupCalls, TimingMode t
     double dataBytes = static_cast<double>(bytes);
     double busBwFactor = 2.0 * static_cast<double>(nranks - 1) / static_cast<double>(nranks);
     double gbps = (dataBytes * busBwFactor / 1e9) / (avgUs / 1e6);
-    double solPercent = gbps / 100.0 * 100.0;  // vs 100 GB/s unidirectional NVLink
+    const yali::SoLMetrics sol = yali::CalculateSoL(bytes, avgUs / 1e6, nGpus, nvlink);
 
     const char* modeStr = (timingMode == TimingMode::CudaEvents)   ? "cuda-events"
                           : (timingMode == TimingMode::Throughput) ? "throughput"
                                                                    : "latency";
     printf("NCCL (%s, %s): %d calls, %.2f us/call avg, %.2f GB/s (%.1f%% SoL)\n", dtype.name, modeStr, numCalls, avgUs,
-           gbps, solPercent);
+           gbps, sol.solPercent);
 
     // Cleanup
     for (int i = 0; i < nGpus; i++) {

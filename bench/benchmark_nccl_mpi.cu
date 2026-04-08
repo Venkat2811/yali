@@ -30,6 +30,8 @@
 #include <mpi.h>
 #include <string>
 
+#include "src/common/hw_info.cuh"
+
 #define CHECK_CUDA(cmd)                                                                                                \
     do {                                                                                                               \
         cudaError_t e = cmd;                                                                                           \
@@ -118,6 +120,7 @@ void benchmarkNCCL(int rank, int worldSize, size_t elemCount, int numCalls, int 
     // Each rank owns one GPU
     CHECK_CUDA(cudaSetDevice(rank));
     const size_t bytes = elemCount * dtype.elementSize;
+    const yali::NVLinkInfo nvlink = yali::DetectNVLinkConfig();
 
     // Setup buffers (per-rank)
     void* sendbuff = nullptr;
@@ -236,7 +239,7 @@ void benchmarkNCCL(int rank, int worldSize, size_t elemCount, int numCalls, int 
     double dataBytes = static_cast<double>(bytes);
     double busBwFactor = 2.0 * static_cast<double>(worldSize - 1) / static_cast<double>(worldSize);
     double gbps = (dataBytes * busBwFactor / 1e9) / (avgUs / 1e6);
-    double solPercent = gbps / 100.0 * 100.0;  // vs 100 GB/s unidirectional NVLink
+    const yali::SoLMetrics sol = yali::CalculateSoL(bytes, avgUs / 1e6, worldSize, nvlink);
 
     // Print results (rank 0 only)
     if (rank == 0) {
@@ -244,7 +247,7 @@ void benchmarkNCCL(int rank, int worldSize, size_t elemCount, int numCalls, int 
                               : (timingMode == TimingMode::Throughput) ? "throughput"
                                                                        : "latency";
         printf("NCCL MPI (%s, %s): %d calls, %.2f us/call avg, %.2f GB/s (%.1f%% SoL)\n", dtype.name, modeStr, numCalls,
-               avgUs, gbps, solPercent);
+               avgUs, gbps, sol.solPercent);
     }
 
     // Cleanup
