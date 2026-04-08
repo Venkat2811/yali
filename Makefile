@@ -8,6 +8,7 @@
         test test-unit test-unit-cpp test-all test-examples test-examples-mpi test-ops test-ops-mpi \
         test-correctness test-perf test-mpi-all test-mpi-correctness validate \
         sweep sweep-quick sweep-standard sweep-extensive sweep-single-only sweep-mpi-only bench bench-mpi \
+        bench-nccl-tests bench-nccl-tests-2thr bench-nccl-devapi sweep-quick-nccl-tests \
         sweep-nccl-1proc-1thr sweep-nccl-1proc-2thr sweep-nccl-2proc-mpi sweep-nccl-all-modes \
         hw-baseline hw-info info run-yali run-nccl run-nvbandwidth run-yali-mpi \
         clean clean-all help detect-arch \
@@ -554,6 +555,10 @@ help:
 	@echo "  make sweep-single-only      - Full sweep, skip MPI"
 	@echo "  make sweep-mpi-only         - Full sweep, skip single-process"
 	@echo "  make bench                  - Quick YALI vs NCCL comparison (5 sizes)"
+	@echo "  make bench-nccl-tests       - Quick YALI vs nccl-tests host-API comparison"
+	@echo "  make bench-nccl-tests-2thr  - Quick YALI vs nccl-tests thread-per-GPU comparison"
+	@echo "  make bench-nccl-devapi      - Quick YALI vs nccl-tests device-API comparison"
+	@echo "  make sweep-quick-nccl-tests - Quick single-process sweep using nccl-tests backend"
 	@echo ""
 	@echo "Advanced Sweeps (NCCL modes):"
 	@echo "  make sweep-nccl-1proc-1thr  - NCCL: -g 2 (single process, 2 GPUs)"
@@ -596,6 +601,18 @@ bench: build-yali
 
 bench-mpi: build-yali-mpi
 	@. venv-2xa100/bin/activate && python3 scripts/quick_benchmark.py --mpi
+
+bench-nccl-tests: build-yali build-nccl
+	@. venv-2xa100/bin/activate && python3 scripts/quick_benchmark.py --nccl-backend tests
+
+bench-nccl-tests-2thr: build-yali build-nccl
+	@. venv-2xa100/bin/activate && python3 scripts/quick_benchmark.py --nccl-backend tests --nccl-tests-mode 1proc-2thr
+
+bench-nccl-devapi: build-yali build-nccl
+	@. venv-2xa100/bin/activate && python3 scripts/quick_benchmark.py --nccl-backend tests --nccl-tests-api device
+
+sweep-quick-nccl-tests: build-yali build-nccl build-nvbandwidth
+	@. venv-2xa100/bin/activate && python3 scripts/sweep.py --quick --single-only --nccl-backend tests
 
 # =============================================================================
 # NCCL Execution Modes:
@@ -712,4 +729,3 @@ sweep-nccl-all-modes: sweep-nccl-1proc-1thr sweep-nccl-1proc-2thr
 	else \
 		echo "Mode 3 (2proc-mpi):  SKIPPED (MPI not available)"; \
 	fi
-

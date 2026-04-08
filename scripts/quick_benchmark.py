@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List, Tuple
 
+from nccl_tests import NcclTestsConfig, resolve_nccl_tests_binary, run_nccl_tests
 from nccl_tuning import NcclTuner
 
 # Standard benchmark sizes (element counts for fp32)
@@ -130,6 +131,7 @@ def run_single_benchmark(cmd: List[str], env: dict, name: str) -> Optional[float
 
 
 def run_benchmark_with_stats(
+    project_dir: Path,
     bazel_bin: str,
     elements: int,
     num_runs: int,
@@ -137,6 +139,8 @@ def run_benchmark_with_stats(
     mpi: bool,
     bench_type: str,  # "YALI" or "NCCL"
     tuner: Optional[NcclTuner] = None,
+    nccl_backend: str = "harness",
+    nccl_tests_config: Optional[NcclTestsConfig] = None,
 ) -> Tuple[Optional[BenchStats], Optional[str]]:
     """Run benchmark multiple times and collect statistics."""
 
@@ -178,14 +182,20 @@ def run_benchmark_with_stats(
                 bench_key,
                 elements * 4,
                 env,
-                lambda candidate_env: run_single_benchmark(cmd, candidate_env, bench_type),
+                lambda candidate_env: run_nccl_tests(project_dir, bazel_bin, elements, "fp32", nccl_tests_config, candidate_env)
+                if nccl_backend == "tests"
+                else run_single_benchmark(cmd, candidate_env, bench_type),
             )
         else:
             env["LD_LIBRARY_PATH"] = f"third_party/nccl/build/lib:{env.get('LD_LIBRARY_PATH', '')}"
 
     samples = []
     for _ in range(num_runs):
-        gbps = run_single_benchmark(cmd, env, bench_type)
+        if bench_type == "NCCL" and nccl_backend == "tests":
+            assert nccl_tests_config is not None
+            gbps = run_nccl_tests(project_dir, bazel_bin, elements, "fp32", nccl_tests_config, env)
+        else:
+            gbps = run_single_benchmark(cmd, env, bench_type)
         if gbps is not None:
             samples.append(gbps)
 
@@ -228,6 +238,12 @@ Examples:
                         help="NCCL benchmark mode (default: default)")
     parser.add_argument("--nccl-tune-level", choices=["basic", "extended"], default="basic",
                         help="Tuning matrix used when --nccl-mode=tuned (default: basic)")
+    parser.add_argument("--nccl-backend", choices=["harness", "tests"], default="harness",
+                        help="NCCL comparison backend (default: harness)")
+    parser.add_argument("--nccl-tests-mode", choices=["1proc-1thr", "1proc-2thr", "mpi"],
+                        help="Execution mode for --nccl-backend=tests")
+    parser.add_argument("--nccl-tests-api", choices=["host", "device"], default="host",
+                        help="API mode for --nccl-backend=tests (default: host)")
     args = parser.parse_args()
 
     # Get bazel bin path
@@ -238,10 +254,21 @@ Examples:
     bazel_bin = get_bazel_bin()
     mode_str = "MPI (2 processes)" if args.mpi else "Single-process (2 GPUs)"
     tuner = NcclTuner(Path(project_dir), mode=args.nccl_mode, level=args.nccl_tune_level)
+    tests_mode = args.nccl_tests_mode or ("mpi" if args.mpi else "1proc-1thr")
+    if args.nccl_backend == "tests":
+        if args.mpi and tests_mode != "mpi":
+            print("nccl-tests backend requires --nccl-tests-mode=mpi when --mpi is set", file=sys.stderr)
+            sys.exit(1)
+        if not args.mpi and tests_mode == "mpi":
+            print("nccl-tests MPI mode requires --mpi", file=sys.stderr)
+            sys.exit(1)
+    nccl_tests_config = NcclTestsConfig(mode=tests_mode, api=args.nccl_tests_api, warmup_iters=1, iters=args.calls)
 
     # Check binaries exist
     yali_bin = f"{bazel_bin}/benchmark_yali_mpi" if args.mpi else f"{bazel_bin}/benchmark_yali"
     nccl_bin = f"{bazel_bin}/benchmark_nccl_mpi" if args.mpi else f"{bazel_bin}/benchmark_nccl"
+    if args.nccl_backend == "tests":
+        nccl_bin = str(resolve_nccl_tests_binary(Path(project_dir), bazel_bin, nccl_tests_config))
 
     missing = []
     if not os.path.exists(yali_bin):
@@ -262,6 +289,8 @@ Examples:
     print(f"YALI vs NCCL AllReduce Benchmark (FP32, {mode_str})")
     print(f"Runs per size: {args.runs}, Calls per run: {args.calls}")
     print(f"NCCL mode: {args.nccl_mode}" + (f" ({args.nccl_tune_level})" if args.nccl_mode == "tuned" else ""))
+    if args.nccl_backend == "tests":
+        print(f"NCCL backend: tests ({tests_mode}, {args.nccl_tests_api})")
     print("=" * 78)
     print()
 
@@ -291,9 +320,10 @@ Examples:
 
         # Run benchmarks
         yali_stats, _ = run_benchmark_with_stats(
-            bazel_bin, elements, args.runs, args.calls, args.mpi, "YALI")
+            Path(project_dir), bazel_bin, elements, args.runs, args.calls, args.mpi, "YALI")
         nccl_stats, nccl_config = run_benchmark_with_stats(
-            bazel_bin, elements, args.runs, args.calls, args.mpi, "NCCL", tuner=tuner)
+            Path(project_dir), bazel_bin, elements, args.runs, args.calls, args.mpi, "NCCL", tuner=tuner,
+            nccl_backend=args.nccl_backend, nccl_tests_config=nccl_tests_config)
 
         results.append((size_label, yali_stats, nccl_stats, nccl_config))
 

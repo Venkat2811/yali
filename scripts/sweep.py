@@ -43,7 +43,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
+from nccl_tests import NcclTestsConfig, run_nccl_tests
 from nccl_tuning import NcclTuner
+from runtime_targets import detect_runtime_targets
 
 # =============================================================================
 # Constants
@@ -384,6 +386,9 @@ class SweepRunner:
         verbose: bool = True,
         nccl_mode: str = "default",
         nccl_tune_level: str = "basic",
+        nccl_backend: str = "harness",
+        nccl_tests_mode: Optional[str] = None,
+        nccl_tests_api: str = "host",
     ):
         self.output_dir = output_dir
         self.config = config
@@ -391,9 +396,29 @@ class SweepRunner:
         self.bazel_bin = None
         self.d2d_bw = 93.70  # Default, updated by nvbandwidth
         self.project_dir = Path(__file__).parent.parent
+        self.runtime_targets = detect_runtime_targets(self.project_dir)
         self.nccl_mode = nccl_mode
         self.nccl_tune_level = nccl_tune_level
+        self.nccl_backend = nccl_backend
+        self.nccl_tests_mode = nccl_tests_mode
+        self.nccl_tests_api = nccl_tests_api
         self.nccl_tuner = NcclTuner(self.project_dir, mode=nccl_mode, level=nccl_tune_level)
+        self.nccl_tests_config = NcclTestsConfig(
+            mode=nccl_tests_mode or "1proc-1thr",
+            api=nccl_tests_api,
+            warmup_iters=1,
+            iters=config.calls if config.calls > 0 else 1,
+        )
+
+        if self.nccl_backend == "tests":
+            if self.config.timing_modes != ["cuda-events"]:
+                raise ValueError("nccl-tests backend is only supported for cuda-events-only sweeps")
+            if len(self.config.exec_modes) != 1:
+                raise ValueError("nccl-tests backend currently requires either --single-only or --mpi-only")
+            if "mpi" in self.config.exec_modes and self.nccl_tests_config.mode != "mpi":
+                raise ValueError("nccl-tests backend requires mode=mpi when sweep includes MPI execution")
+            if "single" in self.config.exec_modes and self.nccl_tests_config.mode == "mpi":
+                raise ValueError("nccl-tests MPI mode requires --mpi-only")
 
         # Results storage: results[exec_mode][library][dtype][timing][size] = BenchStats
         self.results: Dict[str, Dict[str, Dict[str, Dict[str, Dict[str, BenchStats]]]]] = {}
@@ -451,14 +476,21 @@ class SweepRunner:
     def build_targets(self) -> bool:
         self.progress.start_phase("Build")
 
-        targets = ["//:benchmark_yali", "//:benchmark_nccl", "//:nvbandwidth_bin",
+        targets = ["//:benchmark_yali", self.runtime_targets.nvbandwidth_target,
                    "//:example_simple", "//:example_multilane", "//:test_ops_allreduce"]
+        if self.nccl_backend == "tests":
+            targets.append(self.runtime_targets.nccl_tests_target)
+        else:
+            targets.append("//:benchmark_nccl")
 
         if "mpi" in self.config.exec_modes:
-            targets.extend(["//:benchmark_yali_mpi", "//:benchmark_nccl_mpi",
-                           "//:example_simple_mpi", "//:example_multilane_mpi"])
+            targets.extend(["//:benchmark_yali_mpi", "//:example_simple_mpi", "//:example_multilane_mpi"])
+            if self.nccl_backend == "tests":
+                targets.append(self.runtime_targets.nccl_tests_mpi_target)
+            else:
+                targets.append("//:benchmark_nccl_mpi")
 
-        cmd = ["bazel", "build"] + targets
+        cmd = ["bazel", "build"] + self.runtime_targets.bazel_build_flags() + targets
         result = self.run_cmd(cmd, timeout=600)
 
         self.progress.end_phase()
@@ -590,6 +622,9 @@ class SweepRunner:
                               timing_mode: str, dtype: str) -> Optional[float]:
         """Run a single benchmark and return GB/s."""
         bazel_bin = self.get_bazel_bin()
+        if bench_type == "nccl" and self.nccl_backend == "tests":
+            return self._run_nccl_tests_benchmark(exec_mode, elements, dtype)
+
         binary = f"benchmark_{bench_type.lower()}"
         if exec_mode == "mpi":
             binary += "_mpi"
@@ -639,6 +674,32 @@ class SweepRunner:
             )
 
         return self._run_single_benchmark_command(cmd, env, bench_type)
+
+    def _run_nccl_tests_benchmark(self, exec_mode: str, elements: int, dtype: str) -> Optional[float]:
+        env = {"CUDA_VISIBLE_DEVICES": "0,1"}
+        size_bytes = elements * self.config.dtypes[dtype]
+        bench_key = (exec_mode, elements, self.config.calls, "cuda-events", dtype)
+        env, _ = self.nccl_tuner.resolve(
+            bench_key,
+            size_bytes,
+            env,
+            lambda candidate_env: run_nccl_tests(
+                self.project_dir,
+                self.get_bazel_bin(),
+                elements,
+                dtype,
+                self.nccl_tests_config,
+                candidate_env,
+            ),
+        )
+        return run_nccl_tests(
+            self.project_dir,
+            self.get_bazel_bin(),
+            elements,
+            dtype,
+            self.nccl_tests_config,
+            env,
+        )
 
     def _run_single_benchmark_command(self, cmd: List[str], env: Dict[str, str], bench_type: str) -> Optional[float]:
         result = self.run_cmd(cmd, env=env, timeout=180)
@@ -1569,6 +1630,8 @@ class SweepRunner:
                     f"Sizes: {len(self.config.sizes)} | Runs: {self.config.runs}")
         lines.append(f"**NCCL:** {self.nccl_mode}" +
                      (f" ({self.nccl_tune_level})" if self.nccl_mode == "tuned" else ""))
+        if self.nccl_backend == "tests":
+            lines.append(f"**NCCL Backend:** nccl-tests ({self.nccl_tests_config.mode}, {self.nccl_tests_config.api})")
         lines.append("")
         lines.append("---")
         lines.append("")
@@ -2032,6 +2095,12 @@ Examples:
                         help="NCCL benchmark mode (default: default)")
     parser.add_argument("--nccl-tune-level", choices=["basic", "extended"], default="basic",
                         help="Tuning matrix used when --nccl-mode=tuned (default: basic)")
+    parser.add_argument("--nccl-backend", choices=["harness", "tests"], default="harness",
+                        help="NCCL comparison backend (default: harness)")
+    parser.add_argument("--nccl-tests-mode", choices=["1proc-1thr", "1proc-2thr", "mpi"],
+                        help="Execution mode for --nccl-backend=tests")
+    parser.add_argument("--nccl-tests-api", choices=["host", "device"], default="host",
+                        help="API mode for --nccl-backend=tests (default: host)")
 
     args = parser.parse_args()
 
@@ -2088,12 +2157,19 @@ Examples:
     os.chdir(project_dir)
 
     # Run sweep
+    nccl_tests_mode = args.nccl_tests_mode
+    if args.nccl_backend == "tests" and nccl_tests_mode is None:
+        nccl_tests_mode = "mpi" if config.exec_modes == ["mpi"] else "1proc-1thr"
+
     runner = SweepRunner(
         output_dir,
         config,
         verbose=not args.quiet,
         nccl_mode=args.nccl_mode,
         nccl_tune_level=args.nccl_tune_level,
+        nccl_backend=args.nccl_backend,
+        nccl_tests_mode=nccl_tests_mode,
+        nccl_tests_api=args.nccl_tests_api,
     )
     success = runner.run()
 
